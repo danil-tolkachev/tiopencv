@@ -72,8 +72,8 @@
 #define MAX_PROHIBITED_SIZE   20
 
 const char * const prohibitedList[]={
-      "split","",
-      "mixChannels", "", // repeated errors in accuracy tests
+/*    "split","", // Module: Core
+      "mixChannels", "", // Module: Core // repeated errors in accuracy tests
       "fastNlMeansDenoising", "cn=3", // Module: Photo //OpenCL runtime bug while setting kernel argument for float3 datatype.
       "fastNlMeansDenoising", "cn=4", // Module: Photo //OpenCL runtime bug while with AM57 when cn=4
 	  "remap", "INTER_LINEAR", // multiple sensitiviy errors in the accuracy test
@@ -92,6 +92,7 @@ const char * const prohibitedList[]={
 	  "classify_hists_180_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
 	  "classify_hists_252_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
 	  "classify_hists_kernel", "" //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  */
 };
 const char * const performanceList[]={
 	      "bilateral","",
