@@ -1118,6 +1118,20 @@ static bool ocl_compare(InputArray _src1, InputArray _src2, OutputArray _dst, in
     const char * const operationMap[] = { "==", ">", ">=", "<", "<=", "!=" };
     char cvt[40];
 
+#ifdef CV_TIOPENCL
+    // Single quotes required for CMP_OPERATOR argument
+    String opts = format("-D %s -D srcT1=%s -D dstT=%s -D workT=srcT1 -D cn=%d"
+                         " -D convertToDT=%s -D OP_CMP -D CMP_OPERATOR='%s' -D srcT1_C1=%s"
+                         " -D srcT2_C1=%s -D dstT_C1=%s -D workST=%s -D rowsPerWI=%d%s",
+                         haveScalar ? "UNARY_OP" : "BINARY_OP",
+                         ocl::typeToStr(CV_MAKE_TYPE(depth1, kercn)),
+                         ocl::typeToStr(CV_8UC(kercn)), kercn,
+                         ocl::convertTypeStr(depth1, CV_8U, kercn, cvt),
+                         operationMap[op], ocl::typeToStr(depth1),
+                         ocl::typeToStr(depth1), ocl::typeToStr(CV_8U),
+                         ocl::typeToStr(CV_MAKE_TYPE(depth1, scalarcn)), rowsPerWI,
+                         doubleSupport ? " -D DOUBLE_SUPPORT" : "");
+#else
     String opts = format("-D %s -D srcT1=%s -D dstT=%s -D workT=srcT1 -D cn=%d"
                          " -D convertToDT=%s -D OP_CMP -D CMP_OPERATOR=%s -D srcT1_C1=%s"
                          " -D srcT2_C1=%s -D dstT_C1=%s -D workST=%s -D rowsPerWI=%d%s",
@@ -1129,6 +1143,7 @@ static bool ocl_compare(InputArray _src1, InputArray _src2, OutputArray _dst, in
                          ocl::typeToStr(depth1), ocl::typeToStr(CV_8U),
                          ocl::typeToStr(CV_MAKE_TYPE(depth1, scalarcn)), rowsPerWI,
                          doubleSupport ? " -D DOUBLE_SUPPORT" : "");
+#endif
 
     ocl::Kernel k("KF", ocl::core::arithm_oclsrc, opts);
     if (k.empty())

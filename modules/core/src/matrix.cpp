@@ -3624,6 +3624,21 @@ static bool ocl_reduce(InputArray _src, OutputArray _dst,
             tileHeight = min(tileHeight, defDev.localMemSize() / buf_cols / CV_ELEM_SIZE(CV_MAKETYPE(wdepth, cn)) / maxItemInGroupCount);
         }
         char cvt[3][40];
+#ifdef CV_TIOPENCL
+        // the dim variable is a variable in dsp.h. Therefore clocl returns compile errors
+       cv::String build_opt = format("-D OP_REDUCE_PRE -D BUF_COLS=%d -D TILE_HEIGHT=%d -D %s -D DIMEN=1"
+                                            " -D cn=%d -D ddepth=%d"
+                                            " -D srcT=%s -D bufT=%s -D dstT=%s"
+                                            " -D convertToWT=%s -D convertToBufT=%s -D convertToDT=%s%s",
+                                            buf_cols, tileHeight, ops[op], cn, ddepth,
+                                            ocl::typeToStr(sdepth),
+                                            ocl::typeToStr(ddepth),
+                                            ocl::typeToStr(ddepth0),
+                                            ocl::convertTypeStr(ddepth, wdepth, 1, cvt[0]),
+                                            ocl::convertTypeStr(sdepth, ddepth, 1, cvt[1]),
+                                            ocl::convertTypeStr(wdepth, ddepth0, 1, cvt[2]),
+                                            doubleSupport ? " -D DOUBLE_SUPPORT" : "");
+#else
         cv::String build_opt = format("-D OP_REDUCE_PRE -D BUF_COLS=%d -D TILE_HEIGHT=%d -D %s -D dim=1"
                                             " -D cn=%d -D ddepth=%d"
                                             " -D srcT=%s -D bufT=%s -D dstT=%s"
@@ -3636,6 +3651,7 @@ static bool ocl_reduce(InputArray _src, OutputArray _dst,
                                             ocl::convertTypeStr(sdepth, ddepth, 1, cvt[1]),
                                             ocl::convertTypeStr(wdepth, ddepth0, 1, cvt[2]),
                                             doubleSupport ? " -D DOUBLE_SUPPORT" : "");
+#endif
         ocl::Kernel k("reduce_horz_opt", ocl::core::reduce2_oclsrc, build_opt);
         if (k.empty())
             return false;
@@ -3658,6 +3674,18 @@ static bool ocl_reduce(InputArray _src, OutputArray _dst,
     else
     {
         char cvt[2][40];
+#ifdef CV_TIOPENCL
+        // the dim variable is a variable in dsp.h. Therefore clocl returns compile errors
+        cv::String build_opt = format("-D %s -D DIMEN=%d -D cn=%d -D ddepth=%d"
+                                      " -D srcT=%s -D dstT=%s -D dstT0=%s -D convertToWT=%s"
+                                      " -D convertToDT=%s -D convertToDT0=%s%s",
+                                      ops[op], dim, cn, ddepth, ocl::typeToStr(useOptimized ? ddepth : sdepth),
+                                      ocl::typeToStr(ddepth), ocl::typeToStr(ddepth0),
+                                      ocl::convertTypeStr(ddepth, wdepth, 1, cvt[0]),
+                                      ocl::convertTypeStr(sdepth, ddepth, 1, cvt[0]),
+                                      ocl::convertTypeStr(wdepth, ddepth0, 1, cvt[1]),
+                                      doubleSupport ? " -D DOUBLE_SUPPORT" : "");
+#else
         cv::String build_opt = format("-D %s -D dim=%d -D cn=%d -D ddepth=%d"
                                       " -D srcT=%s -D dstT=%s -D dstT0=%s -D convertToWT=%s"
                                       " -D convertToDT=%s -D convertToDT0=%s%s",
@@ -3667,6 +3695,7 @@ static bool ocl_reduce(InputArray _src, OutputArray _dst,
                                       ocl::convertTypeStr(sdepth, ddepth, 1, cvt[0]),
                                       ocl::convertTypeStr(wdepth, ddepth0, 1, cvt[1]),
                                       doubleSupport ? " -D DOUBLE_SUPPORT" : "");
+#endif
 
         ocl::Kernel k("reduce", ocl::core::reduce2_oclsrc, build_opt);
         if (k.empty())

@@ -74,6 +74,10 @@ inline float bicubicCoeff(float x_)
         return 0.0f;
 }
 
+#if 0
+
+// TI's OpenCL does not have an implementation of read_imagef
+
 __kernel void warpBackwardKernel(__global const float* I0, int I0_step, int I0_col, int I0_row,
     image2d_t tex_I1, image2d_t tex_I1x, image2d_t tex_I1y,
     __global const float* u1, int u1_step,
@@ -147,6 +151,7 @@ __kernel void warpBackwardKernel(__global const float* I0, int I0_step, int I0_c
         rho[y * I1w_step + x] = I1wVal - I1wxVal * u1Val - I1wyVal * u2Val - I0Val;
     }
 }
+#endif
 
 inline float readImage(__global float *image,  int x,  int y,  int rows,  int cols, int elemCntPerRow)
 {

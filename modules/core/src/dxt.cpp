@@ -1861,9 +1861,17 @@ public:
         else
             fillRadixTable<double>(twiddles, radixes);
 
+#ifdef CV_TIOPENCL
+        //single quotes for RADIX_PROCESS
+        buildOptions = format("-D LOCAL_SIZE=%d -D kercn=%d -D FT=%s -D CT=%s%s -D RADIX_PROCESS='%s'",
+                              dft_size, min_radix, ocl::typeToStr(dft_depth), ocl::typeToStr(CV_MAKE_TYPE(dft_depth, 2)),
+                              dft_depth == CV_64F ? " -D DOUBLE_SUPPORT" : "", radix_processing.c_str());
+
+#else
         buildOptions = format("-D LOCAL_SIZE=%d -D kercn=%d -D FT=%s -D CT=%s%s -D RADIX_PROCESS=%s",
                               dft_size, min_radix, ocl::typeToStr(dft_depth), ocl::typeToStr(CV_MAKE_TYPE(dft_depth, 2)),
                               dft_depth == CV_64F ? " -D DOUBLE_SUPPORT" : "", radix_processing.c_str());
+#endif
     }
 
     bool enqueueTransform(InputArray _src, OutputArray _dst, int num_dfts, int flags, int fftType, bool rows = true) const
@@ -2091,6 +2099,10 @@ static bool ocl_dft(InputArray _src, OutputArray _dst, int flags, int nonzero_ro
     int real_input = cn == 1 ? 1 : 0;
     int real_output = (flags & DFT_REAL_OUTPUT) != 0;
     bool inv = (flags & DFT_INVERSE) != 0 ? 1 : 0;
+
+    //!!!!!!!!!!!!!!! added by mohamed to avoid error cases
+    if(real_input && inv)
+    	return false;
 
     if( nonzero_rows <= 0 || nonzero_rows > _src.rows() )
         nonzero_rows = _src.rows();

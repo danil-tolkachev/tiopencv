@@ -44,6 +44,10 @@
 
 #include "opencv2/core.hpp"
 
+#ifdef CV_TIOPENCL
+bool isProhibited(const char * kname, const char * buildOptions);
+#endif
+
 namespace cv { namespace ocl {
 
 //! @addtogroup core_opencl

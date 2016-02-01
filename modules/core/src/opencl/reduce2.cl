@@ -177,6 +177,76 @@ __kernel void reduce(__global const uchar * srcptr, int src_step, int src_offset
 #endif
                      )
 {
+#ifdef DIMEN
+#if DIMEN == 0 // reduce to a single row
+    int x = get_global_id(0);
+    if (x < cols)
+    {
+        int src_index = mad24(x, (int)sizeof(srcT) * cn, src_offset);
+        int dst_index = mad24(x, (int)sizeof(dstT0) * cn, dst_offset);
+
+        __global dstT0 * dst = (__global dstT0 *)(dstptr + dst_index);
+        dstT tmp[cn];
+        #pragma unroll
+        for (int c = 0; c < cn; ++c)
+            tmp[c] = INIT_VALUE;
+
+        for (int y = 0; y < rows; ++y, src_index += src_step)
+        {
+            __global const srcT * src = (__global const srcT *)(srcptr + src_index);
+            #pragma unroll
+            for (int c = 0; c < cn; ++c)
+            {
+                dstT value = convertToDT(src[c]);
+                PROCESS_ELEM(tmp[c], value);
+            }
+        }
+
+        #pragma unroll
+        for (int c = 0; c < cn; ++c)
+#ifdef OCL_CV_REDUCE_AVG
+            dst[c] = convertToDT0(convertToWT(tmp[c]) * fscale);
+#else
+            dst[c] = convertToDT0(tmp[c]);
+#endif
+    }
+#elif DIMEN == 1 // reduce to a single column
+    int y = get_global_id(0);
+    if (y < rows)
+    {
+        int src_index = mad24(y, src_step, src_offset);
+        int dst_index = mad24(y, dst_step, dst_offset);
+
+        __global const srcT * src = (__global const srcT *)(srcptr + src_index);
+        __global dstT * dst = (__global dstT *)(dstptr + dst_index);
+        dstT tmp[cn];
+        #pragma unroll
+        for (int c = 0; c < cn; ++c)
+            tmp[c] = INIT_VALUE;
+
+        for (int x = 0; x < cols; ++x, src += cn)
+        {
+            #pragma unroll
+            for (int c = 0; c < cn; ++c)
+            {
+                dstT value = convertToDT(src[c]);
+                PROCESS_ELEM(tmp[c], value);
+            }
+        }
+
+        #pragma unroll
+        for (int c = 0; c < cn; ++c)
+#ifdef OCL_CV_REDUCE_AVG
+            dst[c] = convertToDT0(convertToWT(tmp[c]) * fscale);
+#else
+            dst[c] = convertToDT0(tmp[c]);
+#endif
+    }
+#else
+#error "DIMEN must be either 0 or 1"
+#endif
+
+#else //def DIMEN
 #if dim == 0 // reduce to a single row
     int x = get_global_id(0);
     if (x < cols)
@@ -242,8 +312,10 @@ __kernel void reduce(__global const uchar * srcptr, int src_step, int src_offset
 #endif
     }
 #else
-#error "Dims must be either 0 or 1"
-#endif
+#error "dim must be either 0 or 1"
+#endif 
+
+#endif //def DIMEN
 }
 
 #endif

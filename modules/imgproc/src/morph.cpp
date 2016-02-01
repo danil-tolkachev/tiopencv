@@ -1467,6 +1467,29 @@ static bool ocl_morphSmall( InputArray _src, OutputArray _dst, InputArray _kerne
 
 
     static const char * const op2str[] = { "OP_ERODE", "OP_DILATE", NULL, NULL, "OP_GRADIENT", "OP_TOPHAT", "OP_BLACKHAT" };
+#ifdef CV_TIOPENCL
+    // single quotes are required for the argument PROCESS_ELEM
+	String opts = format("-D cn=%d "
+            "-D ANCHOR_X=%d -D ANCHOR_Y=%d -D KERNEL_SIZE_X=%d -D KERNEL_SIZE_Y=%d "
+            "-D PX_LOAD_VEC_SIZE=%d -D PX_LOAD_NUM_PX=%d -D DEPTH_%d "
+            "-D PX_PER_WI_X=%d -D PX_PER_WI_Y=%d -D PRIV_DATA_WIDTH=%d -D %s -D %s "
+            "-D PX_LOAD_X_ITERATIONS=%d -D PX_LOAD_Y_ITERATIONS=%d "
+            "-D srcT=%s -D srcT1=%s -D dstT=srcT -D dstT1=srcT1 -D WT=%s -D WT1=%s "
+            "-D convertToWT=%s -D convertToDstT=%s -D PX_LOAD_FLOAT_VEC_CONV=convert_%s -D PROCESS_ELEM_='%s' -D %s%s",
+            cn, anchor.x, anchor.y, ksize.width, ksize.height,
+            pxLoadVecSize, pxLoadNumPixels, depth,
+            pxPerWorkItemX, pxPerWorkItemY, privDataWidth, borderMap[borderType],
+            isolated ? "BORDER_ISOLATED" : "NO_BORDER_ISOLATED",
+            privDataWidth / pxLoadNumPixels, pxPerWorkItemY + ksize.height - 1,
+            ocl::typeToStr(type), ocl::typeToStr(depth),
+            haveExtraMat ? ocl::typeToStr(wtype):"srcT",//to prevent overflow - WT
+            haveExtraMat ? ocl::typeToStr(wdepth):"srcT1",//to prevent overflow - WT1
+            haveExtraMat ? ocl::convertTypeStr(depth, wdepth, cn, cvt[0]) : "noconvert",//to prevent overflow - src to WT
+            haveExtraMat ? ocl::convertTypeStr(wdepth, depth, cn, cvt[1]) : "noconvert",//to prevent overflow - WT to dst
+            ocl::typeToStr(CV_MAKE_TYPE(haveExtraMat ? wdepth : depth, pxLoadVecSize)), //PX_LOAD_FLOAT_VEC_CONV
+            processing.c_str(), op2str[op],
+            actual_op == op ? "" : cv::format(" -D %s", op2str[actual_op]).c_str());
+#else
     String opts = format("-D cn=%d "
             "-D ANCHOR_X=%d -D ANCHOR_Y=%d -D KERNEL_SIZE_X=%d -D KERNEL_SIZE_Y=%d "
             "-D PX_LOAD_VEC_SIZE=%d -D PX_LOAD_NUM_PX=%d -D DEPTH_%d "
@@ -1487,6 +1510,7 @@ static bool ocl_morphSmall( InputArray _src, OutputArray _dst, InputArray _kerne
             ocl::typeToStr(CV_MAKE_TYPE(haveExtraMat ? wdepth : depth, pxLoadVecSize)), //PX_LOAD_FLOAT_VEC_CONV
             processing.c_str(), op2str[op],
             actual_op == op ? "" : cv::format(" -D %s", op2str[actual_op]).c_str());
+#endif
 
     ocl::Kernel kernel("filterSmall", cv::ocl::imgproc::filterSmall_oclsrc, opts);
     if (kernel.empty())
@@ -1628,6 +1652,19 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
     for (int i = 0; i < iterations; i++)
     {
         int current_op = iterations == i + 1 ? actual_op : op;
+#ifdef CV_TIOPENCL
+        // Single quotes are required for the PROCESS_ELEMS argument
+        String buildOptions = format("-D RADIUSX=%d -D RADIUSY=%d -D LSIZE0=%d -D LSIZE1=%d -D %s%s"
+                                     " -D PROCESS_ELEMS='%s' -D T=%s -D DEPTH_%d -D cn=%d -D T1=%s"
+                                     " -D convertToWT=%s -D convertToT=%s -D ST=%s%s",
+                                     anchor.x, anchor.y, (int)localThreads[0], (int)localThreads[1], op2str[op],
+                                     doubleSupport ? " -D DOUBLE_SUPPORT" : "", processing.c_str(),
+                                     ocl::typeToStr(type), depth, cn, ocl::typeToStr(depth),
+                                     ocl::convertTypeStr(depth, wdepth, cn, cvt[0]),
+                                     ocl::convertTypeStr(wdepth, depth, cn, cvt[1]),
+                                     ocl::typeToStr(CV_MAKE_TYPE(depth, scalarcn)),
+                                     current_op == op ? "" : cv::format(" -D %s", op2str[current_op]).c_str());
+#else
         String buildOptions = format("-D RADIUSX=%d -D RADIUSY=%d -D LSIZE0=%d -D LSIZE1=%d -D %s%s"
                                      " -D PROCESS_ELEMS=%s -D T=%s -D DEPTH_%d -D cn=%d -D T1=%s"
                                      " -D convertToWT=%s -D convertToT=%s -D ST=%s%s",
@@ -1638,6 +1675,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
                                      ocl::convertTypeStr(wdepth, depth, cn, cvt[1]),
                                      ocl::typeToStr(CV_MAKE_TYPE(depth, scalarcn)),
                                      current_op == op ? "" : cv::format(" -D %s", op2str[current_op]).c_str());
+#endif
 
         kernels[i].create("morph", ocl::imgproc::morph_oclsrc, buildOptions);
         if (kernels[i].empty())

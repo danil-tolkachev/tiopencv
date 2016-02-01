@@ -34,7 +34,8 @@ __kernel void calcAlmostDist2Weight(__global wlut_t * almostDist2Weight, int alm
 #else
         w_t w = exp((w_t)(-dist) * den);
 #endif
-        wlut_t weight = convert_wlut_t(fixedPointMult * (isnan(w) ? (w_t)1.0 : w));
+		//typecast for fixedPointMult required with TI OpenCL compiler
+        wlut_t weight = convert_wlut_t((w_t)fixedPointMult * (isnan(w) ? (w_t)1.0 : w));
         almostDist2Weight[almostDist] =
             weight < (wlut_t)(WEIGHT_THRESHOLD * fixedPointMult) ? (wlut_t)0 : weight;
     }

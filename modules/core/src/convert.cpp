@@ -143,11 +143,20 @@ static bool ocl_split( InputArray _m, OutputArrayOfArrays _mv )
         processelem += format("PROCESS_ELEM(%d)", i);
     }
 
+#ifdef CV_TIOPENCL
+    // Single quotes required on DECLARE_DST_PARAMS argument.
+    ocl::Kernel k("split", ocl::core::split_merge_oclsrc,
+                  format("-D T=%s -D OP_SPLIT -D cn=%d -D DECLARE_DST_PARAMS='%s'"
+                         " -D PROCESS_ELEMS_N='%s' -D DECLARE_INDEX_N='%s'",
+                         ocl::memopTypeToStr(depth), cn, dstargs.c_str(),
+                         processelem.c_str(), indexdecl.c_str()));
+#else
     ocl::Kernel k("split", ocl::core::split_merge_oclsrc,
                   format("-D T=%s -D OP_SPLIT -D cn=%d -D DECLARE_DST_PARAMS=%s"
                          " -D PROCESS_ELEMS_N=%s -D DECLARE_INDEX_N=%s",
                          ocl::memopTypeToStr(depth), cn, dstargs.c_str(),
                          processelem.c_str(), indexdecl.c_str()));
+#endif
     if (k.empty())
         return false;
 
@@ -313,11 +322,22 @@ static bool ocl_merge( InputArrayOfArrays _mv, OutputArray _dst )
         cndecl += format(" -D scn%d=%d", i, ksrc[i].channels());
     }
 
+#ifdef CV_TIOPENCL
+    // Single quotes required on DECLARE_SRC_PARAMS, and PROCESS_ELEMS argument.
+
+    ocl::Kernel k("merge", ocl::core::split_merge_oclsrc,
+                  format("-D OP_MERGE -D cn=%d -D T=%s -D DECLARE_SRC_PARAMS_N='%s'"
+                         " -D DECLARE_INDEX_N='%s' -D PROCESS_ELEMS_N='%s'%s",
+                         dcn, ocl::memopTypeToStr(depth), srcargs.c_str(),
+                         indexdecl.c_str(), processelem.c_str(), cndecl.c_str()));
+#else
     ocl::Kernel k("merge", ocl::core::split_merge_oclsrc,
                   format("-D OP_MERGE -D cn=%d -D T=%s -D DECLARE_SRC_PARAMS_N=%s"
                          " -D DECLARE_INDEX_N=%s -D PROCESS_ELEMS_N=%s%s",
                          dcn, ocl::memopTypeToStr(depth), srcargs.c_str(),
                          indexdecl.c_str(), processelem.c_str(), cndecl.c_str()));
+#endif
+
     if (k.empty())
         return false;
 
@@ -582,11 +602,20 @@ static bool ocl_mixChannels(InputArrayOfArrays _src, InputOutputArrayOfArrays _d
         declcn += format(" -D scn%d=%d -D dcn%d=%d", i, src[src_idx].channels(), i, dst[dst_idx].channels());
     }
 
+#ifdef CV_TIOPENCL
+    // Single quotes required for the argument DECLARE_OUTPUT_MAT_N amd DECLARE INDEX
+    ocl::Kernel k("mixChannels", ocl::core::mixchannels_oclsrc,
+                  format("-D T=%s -D DECLARE_INPUT_MAT_N='%s' -D DECLARE_OUTPUT_MAT_N='%s'"
+                         " -D PROCESS_ELEM_N='%s' -D DECLARE_INDEX_N='%s'%s",
+                         ocl::memopTypeToStr(depth), declsrc.c_str(), decldst.c_str(),
+                         declproc.c_str(), indexdecl.c_str(), declcn.c_str()));
+#else
     ocl::Kernel k("mixChannels", ocl::core::mixchannels_oclsrc,
                   format("-D T=%s -D DECLARE_INPUT_MAT_N=%s -D DECLARE_OUTPUT_MAT_N=%s"
                          " -D PROCESS_ELEM_N=%s -D DECLARE_INDEX_N=%s%s",
                          ocl::memopTypeToStr(depth), declsrc.c_str(), decldst.c_str(),
                          declproc.c_str(), indexdecl.c_str(), declcn.c_str()));
+#endif
     if (k.empty())
         return false;
 

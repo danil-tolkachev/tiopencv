@@ -45,11 +45,18 @@
 #include <string>
 #include <sstream>
 #include <iostream> // std::cerr
+#ifdef CV_TIOPENCL
+#include <sys/time.h>  // gettimeoftheday
+#endif
 
 #define CV_OPENCL_ALWAYS_SHOW_BUILD_LOG 0
 #define CV_OPENCL_SHOW_RUN_ERRORS       0
 #define CV_OPENCL_SHOW_SVM_ERROR_LOG    1
 #define CV_OPENCL_SHOW_SVM_LOG          0
+
+#ifdef CV_TIOPENCL
+#define CL_TI_MAX_GROUP_SIZE            1024//1048576//16384//65536
+#endif
 
 #include "opencv2/core/bufferpool.hpp"
 #ifndef LOG_BUFFER_POOL
@@ -59,6 +66,74 @@
 #   define LOG_BUFFER_POOL(...)
 # endif
 #endif
+
+#ifdef CV_TIOPENCL
+
+#define MAX_PROHIBITED_SIZE   20
+
+const char * const prohibitedList[]={
+      "split","",
+      "mixChannels", "", // repeated errors in accuracy tests
+      "fastNlMeansDenoising", "cn=3", // Module: Photo //OpenCL runtime bug while setting kernel argument for float3 datatype.
+      "fastNlMeansDenoising", "cn=4", // Module: Photo //OpenCL runtime bug while with AM57 when cn=4
+	  "remap", "INTER_LINEAR", // multiple sensitiviy errors in the accuracy test
+	  "boxFilter","cn=3", // multiple sensitivity issues with 3 channels
+      "copyMakeBorder","", // problem with clahe
+	  "laplacian", "float3", // compile problem with float3
+      "warpBackwardKernel", "", //Module: Video // Image datatype is not supported by TI OpenCL
+	  "runLBPClassifierStumpSimple","", //Module: objdetect //clocl seg faults when this kernel is compiled
+	  "BruteForceMatch_Match", "", //Module: features2d //clocl 1.1.1.2 when this kernel is compiled
+	  "BruteForceMatch_RadiusMatch", "", //Module: features2d //clocl 1.1.1.2 when this kernel is compiled
+	  "BruteForceMatch_knnMatch", "", //Module: features2d //clocl 1.1.1.2 when this kernel is compiled
+	  "compute_gradients_8UC1_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "compute_hists_lut_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "normalize_hists_36_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "normalize_hists_kernel","", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "classify_hists_180_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "classify_hists_252_kernel", "", //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "classify_hists_kernel", "" //Module: objdetect // tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+};
+const char * const performanceList[]={
+	      "bilateral","",
+	      "get_lines","",
+	      "LUT","",
+	      "meanStdDev","",
+	      "norm", "",
+	      "reduce","OP_DOT",  // dot produce
+	      "reduce","OP_SUM",  // ocl_sum
+	      "reduce", "OP_COUNT_NON_ZERO", // count nonzero
+	      "repeat","",
+	      "threshold","",
+	      "transpose", "",
+	      "warpAffine", "",
+};
+
+bool isProhibited(const char * kname, const char * buildOptions)
+{
+   //printf("&&&&& checking %s: ",kname);
+   for(int i=0; i< 2*MAX_PROHIBITED_SIZE ;i+=2){
+      //printf("comparing (%s,%s) = %d\n",kname,prohibitedList[i], strcmp(prohibitedList[i],kname));
+      if(strcmp(prohibitedList[i],kname) == 0){
+         //printf("kname matched (opt %d) : ", strlen(prohibitedList[i+1]));
+         if(strlen(prohibitedList[i+1]) == 0){ // prohibited with any options
+            ///printf("found (1) \n");
+            return true;
+         }
+         else {
+            if(strstr(buildOptions, prohibitedList[i+1]) != 0){//(prohibitedList[i+1].find(buildOptions)!= std::string::npos ){
+               //printf("found\n");
+               return true;
+            }
+         }
+      }
+   }
+  // printf("not found\n");
+   return false;
+}
+
+
+#endif
+
 
 
 // TODO Move to some common place
@@ -772,6 +847,10 @@ static void* initOpenCLAndLoad(const char* funcname)
         }
         if(!handle)
             return 0;
+#ifdef CV_OPENCL_RUN_VERBOSE
+        else
+        	printf("!!!! LibOpenCL.so is loaded properly \n");
+#endif
     }
 
     return funcname ? (void*)dlsym(handle, funcname) : 0;
@@ -1373,6 +1452,10 @@ static bool isRaiseError()
 #include "opencv2/core/opencl/opencl_svm.hpp"
 #endif
 
+#ifdef CV_TIOPENCL
+#include <stdio.h>
+#endif
+
 namespace cv { namespace ocl {
 
 struct UMat2D
@@ -1491,6 +1574,9 @@ bool useOpenCL()
             data->useOpenCL = 0;
         }
     }
+#ifdef CV_OPENCL_RUN_VERBOSE
+    printf("data->useOpenCL = %d\n",data->useOpenCL);
+#endif
     return data->useOpenCL > 0;
 }
 
@@ -2093,8 +2179,13 @@ int Device::maxWriteImageArgs() const
 int Device::maxSamplers() const
 { return p ? p->getProp<cl_uint, int>(CL_DEVICE_MAX_SAMPLERS) : 0; }
 
+#ifdef CV_TIOPENCL
+size_t Device::maxWorkGroupSize() const
+{ return p ? /*p->maxWorkGroupSize_*/CL_TI_MAX_GROUP_SIZE : 0; }
+#else
 size_t Device::maxWorkGroupSize() const
 { return p ? p->maxWorkGroupSize_ : 0; }
+#endif
 
 int Device::maxWorkItemDims() const
 { return p ? p->getProp<cl_uint, int>(CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS) : 0; }
@@ -2247,15 +2338,28 @@ static cl_device_id selectOpenCLDevice()
 #else
 static cl_device_id selectOpenCLDevice()
 {
+#ifdef CV_TIOPENCL
+	 std::string platform_str, deviceName;
+#else
     std::string platform, deviceName;
+#endif
     std::vector<std::string> deviceTypes;
 
     const char* configuration = getenv("OPENCV_OPENCL_DEVICE");
+
+#ifdef CV_TIOPENCL
+    if (configuration &&
+            (strcmp(configuration, "disabled") == 0 ||
+             !parseOpenCLDeviceConfiguration(std::string(configuration), platform_str, deviceTypes, deviceName)
+            ))
+        return NULL;
+#else
     if (configuration &&
             (strcmp(configuration, "disabled") == 0 ||
              !parseOpenCLDeviceConfiguration(std::string(configuration), platform, deviceTypes, deviceName)
             ))
         return NULL;
+#endif
 
     bool isID = false;
     int deviceID = -1;
@@ -2293,16 +2397,29 @@ static cl_device_id selectOpenCLDevice()
         platforms.resize((size_t)numPlatforms);
         CV_OclDbgAssert(clGetPlatformIDs(numPlatforms, &platforms[0], &numPlatforms) == CL_SUCCESS);
         platforms.resize(numPlatforms);
+
+#ifdef CV_TIOPENCL
+		std::string platform_name;
+        getStringInfo(clGetPlatformInfo, platforms[0], CL_PLATFORM_NAME, platform_name);    
+#endif
     }
 
     int selectedPlatform = -1;
+#ifdef CV_TIOPENCL
+	if (platform_str.length() > 0)
+#else
     if (platform.length() > 0)
+#endif
     {
         for (size_t i = 0; i < platforms.size(); i++)
         {
             std::string name;
             CV_OclDbgAssert(getStringInfo(clGetPlatformInfo, platforms[i], CL_PLATFORM_NAME, name) == CL_SUCCESS);
+#ifdef CV_TIOPENCL
+			if (name.find(platform_str) != std::string::npos)
+#else
             if (name.find(platform) != std::string::npos)
+#endif
             {
                 selectedPlatform = (int)i;
                 break;
@@ -2310,7 +2427,11 @@ static cl_device_id selectOpenCLDevice()
         }
         if (selectedPlatform == -1)
         {
+#ifdef CV_TIOPENCL
+			std::cerr << "ERROR: Can't find OpenCL platform by name: " << platform_str << std::endl;
+#else
             std::cerr << "ERROR: Can't find OpenCL platform by name: " << platform << std::endl;
+#endif
             goto not_found;
         }
     }
@@ -2385,10 +2506,15 @@ static cl_device_id selectOpenCLDevice()
 not_found:
     if (!configuration)
         return NULL; // suppress messages on stderr
-
+#ifdef CV_TIOPENCL
+    std::cerr << "ERROR: Requested OpenCL device not found, check configuration: " << (configuration == NULL ? "" : configuration) << std::endl
+            << "    Platform: " << (platform_str.length() == 0 ? "any" : platform_str) << std::endl
+            << "    Device types: ";
+#else
     std::cerr << "ERROR: Requested OpenCL device not found, check configuration: " << (configuration == NULL ? "" : configuration) << std::endl
             << "    Platform: " << (platform.length() == 0 ? "any" : platform) << std::endl
             << "    Device types: ";
+#endif
     for (size_t t = 0; t < deviceTypes.size(); t++)
         std::cerr << deviceTypes[t] << " ";
 
@@ -2580,6 +2706,7 @@ struct Context::Impl
     Program getProg(const ProgramSource& src,
                     const String& buildflags, String& errmsg)
     {
+#ifndef  CV_TIOPENCL_ENABLE_PROGRAM_COUNT
         String prefix = Program::getPrefix(buildflags);
         HashKey k(src.hash(), crc64((const uchar*)prefix.c_str(), prefix.size()));
         phash_t::iterator it = phash.find(k);
@@ -2590,6 +2717,67 @@ struct Context::Impl
         if(prog.ptr())
             phash.insert(std::pair<HashKey,Program>(k, prog));
         return prog;
+#else
+
+static uint64 callCount = 0;
+        typedef std::vector<std::pair<HashKey,uint64> > HIST_BUF;
+        static HIST_BUF callHistory;
+
+#ifdef CV_OPENCL_RUN_VERBOSE
+        printf("Limiting the number of kernels compiled\n");
+#endif
+
+        printf("Limiting the number of kernels compiled\n");
+
+        String prefix = Program::getPrefix(buildflags);
+        HashKey k(src.hash(), crc64((const uchar*)prefix.c_str(), prefix.size()));
+        phash_t::iterator it = phash.find(k);
+        if( it != phash.end() )
+        {// adjusting the history record for the program if it is found
+           for(HIST_BUF::iterator hist_it = callHistory.begin(); hist_it !=callHistory.end(); ++hist_it)
+           {
+              if(hist_it->first == k)
+              {
+                 hist_it->second = callCount;
+                 break;
+              }
+           }
+
+           callCount++;
+           return it->second;
+        }
+        // otherwise adding to the key
+        Program prog(src, buildflags, errmsg);
+        if(prog.ptr())
+        {
+           if(phash.size() < MAX_PROGRAM_HASH_SIZE){
+              phash.insert(std::pair<HashKey,Program>(k, prog));
+              callHistory.push_back(std::pair<HashKey,uint64>(k, callCount));
+           }
+           else{ // removing the oldest program entry
+              // searching for the oldest program
+              uint64 oldestCount = callHistory[0].second;
+              int oldloc = 0;
+              int bufSize = callHistory.size();
+              for(int r = 1; r < bufSize; ++r)
+              {
+                 if(callHistory[r].second < oldestCount)
+                 {
+                    oldestCount = callHistory[r].second;
+                    oldloc = r;
+                 }
+              }
+              // removing the oldest entry from program map and adding the new one
+              phash.erase(callHistory[oldloc].first);
+              phash.insert(std::pair<HashKey,Program>(k, prog));
+
+              // now replacing the oldest count by the new entry in the history
+              callHistory[oldloc] = std::pair<HashKey,uint64>(k, callCount);
+           }
+        }
+        callCount++;
+        return prog;
+#endif
     }
 
     IMPLEMENT_REFCOUNTABLE();
@@ -3031,6 +3219,9 @@ struct Queue::Impl
 {
     Impl(const Context& c, const Device& d)
     {
+#ifdef CV_OPENCL_RUN_VERBOSE
+        static int numCommandQueue = 0;
+#endif
         refcount = 1;
         const Context* pc = &c;
         cl_context ch = (cl_context)pc->ptr();
@@ -3043,6 +3234,9 @@ struct Queue::Impl
         if( !dh )
             dh = (cl_device_id)pc->device(0).ptr();
         cl_int retval = 0;
+#ifdef CV_OPENCL_RUN_VERBOSE
+        printf(".... creating command queue %d\n",numCommandQueue++);
+#endif
         handle = clCreateCommandQueue(ch, dh, 0, &retval);
         CV_OclDbgAssert(retval == CL_SUCCESS);
     }
@@ -3056,6 +3250,9 @@ struct Queue::Impl
             if(handle)
             {
                 clFinish(handle);
+#ifdef CV_OPENCL_RUN_VERBOSE
+                printf(".... Releasing command queue\n");
+#endif
                 clReleaseCommandQueue(handle);
                 handle = NULL;
             }
@@ -3126,6 +3323,9 @@ void* Queue::ptr() const
 Queue& Queue::getDefault()
 {
     Queue& q = getCoreTlsData().get()->oclQueue;
+#ifdef CV_OPENCL_RUN_VERBOSE
+    printf("Checking if command queue exists %x\n",q.p);
+#endif
     if( !q.p && haveOpenCL() )
         q.create(Context::getDefault());
     return q;
@@ -3308,7 +3508,12 @@ bool Kernel::create(const char* kname, const ProgramSource& src,
     }
     String tempmsg;
     if( !errmsg ) errmsg = &tempmsg;
+#ifdef CV_TIOPENCL
+	// checking the prohibited list
+    const Program& prog = isProhibited(kname,buildopts.c_str()) ? Program(): Context::getDefault().getProg(src, buildopts, *errmsg);
+#else
     const Program& prog = Context::getDefault().getProg(src, buildopts, *errmsg);
+#endif
     return create(kname, prog);
 }
 
@@ -3558,6 +3763,12 @@ struct Program::Impl
         size_t srclen = srcstr.size();
         cl_int retval = 0;
 
+#ifdef CV_OPENCL_RUN_VERBOSE
+        struct timeval startTime, endTime;
+        gettimeofday(&startTime, NULL);
+
+        printf("clCreateProgramWithSource .... ");
+#endif
         handle = clCreateProgramWithSource((cl_context)ctx.ptr(), 1, &srcptr, &srclen, &retval);
         if( handle && retval == CL_SUCCESS )
         {
@@ -3572,7 +3783,9 @@ struct Program::Impl
                 buildflags += " -D AMD_DEVICE";
             else if (device.isIntel())
                 buildflags += " -D INTEL_DEVICE";
-
+#ifdef CV_OPENCL_RUN_VERBOSE
+            printf("clBuildProgram \n");
+#endif
             retval = clBuildProgram(handle, n,
                                     (const cl_device_id*)deviceList,
                                     buildflags.c_str(), 0, 0);
@@ -3604,6 +3817,10 @@ struct Program::Impl
                 }
             }
         }
+#ifdef CV_OPENCL_RUN_VERBOSE
+        gettimeofday(&endTime, NULL);
+        printf("build Time = %.2e us\n", (double) (endTime.tv_sec - startTime.tv_sec) * 1e6 + (double) (endTime.tv_usec - startTime.tv_usec));
+#endif
     }
 
     Impl(const String& _buf, const String& _buildflags)
@@ -3634,6 +3851,9 @@ struct Program::Impl
         void* devid = dev.ptr();
         size_t codelen = _buf.length() - prefixlen;
         cl_int binstatus = 0, retval = 0;
+#ifdef CV_OPENCL_RUN_VERBOSE
+        printf("clCreateProgramWithBinary .... \n");
+#endif
         handle = clCreateProgramWithBinary((cl_context)ctx.ptr(), 1, (cl_device_id*)&devid,
                                            &codelen, &bin, &binstatus, &retval);
         CV_OclDbgAssert(retval == CL_SUCCESS);
@@ -4059,6 +4279,9 @@ public:
         entry.capacity_ = alignSize(size, (int)_allocationGranularity(size));
         Context& ctx = Context::getDefault();
         cl_int retval = CL_SUCCESS;
+#ifdef CV_OPENCL_RUN_VERBOSE
+        printf("!!!!! 3. clCreateBuffer (%d)\n",entry.capacity_);
+#endif
         entry.clBuffer_ = clCreateBuffer((cl_context)ctx.ptr(), CL_MEM_READ_WRITE|createFlags_, entry.capacity_, 0, &retval);
         CV_Assert(retval == CL_SUCCESS);
         CV_Assert(entry.clBuffer_ != NULL);
@@ -4911,6 +5134,11 @@ public:
         if(!u)
             return;
         UMatDataAutoLock autolock(u);
+#ifdef CV_OPENCL_RUN_VERBOSE
+		printf("!!!! calling download: dims = %d, sz(%d,%d,%d), srcof(%d,%d,%d),  srcstep(%d,%d,%d), dststep (%d,%d,%d),\n ",
+    			dims,sz[0],sz[1],sz[2],srcofs[0],srcofs[1],srcofs[2],srcstep[0], srcstep[1],srcstep[2],
+				dststep[0],dststep[1],dststep[2] );
+#endif
 
         if( u->data && !u->hostCopyObsolete() )
         {
@@ -4929,6 +5157,11 @@ public:
                                             total, new_sz,
                                             srcrawofs, new_srcofs, new_srcstep,
                                             dstrawofs, new_dstofs, new_dststep);
+#ifdef CV_OPENCL_RUN_VERBOSE
+        printf("!!!! iscontinue = %d: dims = %d, new_sz(%d,%d,%d), new_srcof(%d,%d,%d),  new_srcstep(%d,%d,%d), new_dstofs(%d,%d,%d), new_dststep (%d,%d,%d),\n ",
+    			iscontinuous,dims,new_sz[0],new_sz[1],new_sz[2], new_srcofs[0],new_srcofs[1],new_srcofs[2],new_srcstep[0], new_srcstep[1],new_srcstep[2],
+				new_dstofs[0], new_dstofs[1], new_dstofs[2], new_dststep[0],new_dststep[1],new_dststep[2] );
+#endif
 
 #ifdef HAVE_OPENCL_SVM
         if ((u->allocatorFlags_ & svm::OPENCL_SVM_BUFFER_MASK) != 0)
@@ -4998,6 +5231,11 @@ public:
             }
             else
             {
+#ifdef CV_OPENCL_RUN_VERBOSE
+				printf("calling clEnqueueReadBufferRect: src(%d,%d,%d), dst(%d,%d,%d), sz(%d,%d,%d),new_srcstep (%d,%d),new_dststep(%d,%d)\n ",
+            			new_srcofs[0],new_srcofs[1],new_srcofs[2],new_dstofs[0],new_dstofs[1],new_dstofs[2],new_sz[0],new_sz[1],new_sz[2],
+						new_srcstep[0], new_srcstep[1], new_dststep[0], new_dststep[1]);
+#endif
                 AlignedDataPtr2D<false, true> alignedPtr((uchar*)dstptr, new_sz[1], new_sz[0], new_dststep[0], CV_OPENCL_DATA_PTR_ALIGNMENT);
                 uchar* ptr = alignedPtr.getAlignedPtr();
 
@@ -5732,8 +5970,11 @@ String kernelToStr(InputArray _kernel, int ddepth, const char * name)
                                     kerToStr<int>, kerToStr<float>, kerToStr<double>, 0 };
     const func_t func = funcs[ddepth];
     CV_Assert(func != 0);
-
+#ifdef CV_TIOPENCL
+	return cv::format(" -D %s='%s'", name ? name : "COEFF", func(kernel).c_str());
+#else
     return cv::format(" -D %s=%s", name ? name : "COEFF", func(kernel).c_str());
+#endif
 }
 
 #define PROCESS_SRC(src) \
@@ -5959,6 +6200,9 @@ struct Image2D::Impl
         cl_mem devData;
         if (!alias && !src.isContinuous())
         {
+#ifdef CV_OPENCL_RUN_VERBOSE
+            printf("!!!! 2. clCreateBuffer %dx%xx%d= %d bytes\n",src.cols, src.rows, src.elemSize(),src.cols * src.rows * src.elemSize());
+#endif
             devData = clCreateBuffer(context, CL_MEM_READ_ONLY, src.cols * src.rows * src.elemSize(), NULL, &err);
             CV_OclDbgAssert(err == CL_SUCCESS);
 
