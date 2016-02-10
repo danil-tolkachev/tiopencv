@@ -3106,6 +3106,17 @@ static bool ocl_bilateralFilter_8u(InputArray _src, OutputArray _dst, int d,
                 sizeDiv = 4;
             }
      }
+#ifdef CV_TIOPENCL
+    // Single quotes needed around -D gauss_color_coeff='(float)%f'
+    ocl::Kernel k(kernelName.c_str(), ocl::imgproc::bilateral_oclsrc,
+                format("-D radius=%d -D maxk=%d -D cn=%d -D int_t=%s -D uint_t=uint%s -D convert_int_t=%s"
+                " -D uchar_t=%s -D float_t=%s -D convert_float_t=%s -D convert_uchar_t=%s -D gauss_color_coeff='(float)%f'",
+                radius, maxk, cn, ocl::typeToStr(CV_32SC(cn)), cnstr.c_str(),
+                ocl::convertTypeStr(CV_8U, CV_32S, cn, cvt[0]),
+                ocl::typeToStr(type), ocl::typeToStr(CV_32FC(cn)),
+                ocl::convertTypeStr(CV_32S, CV_32F, cn, cvt[1]),
+                ocl::convertTypeStr(CV_32F, CV_8U, cn, cvt[2]), gauss_color_coeff));
+#else
      ocl::Kernel k(kernelName.c_str(), ocl::imgproc::bilateral_oclsrc,
             format("-D radius=%d -D maxk=%d -D cn=%d -D int_t=%s -D uint_t=uint%s -D convert_int_t=%s"
             " -D uchar_t=%s -D float_t=%s -D convert_float_t=%s -D convert_uchar_t=%s -D gauss_color_coeff=(float)%f",
@@ -3114,6 +3125,7 @@ static bool ocl_bilateralFilter_8u(InputArray _src, OutputArray _dst, int d,
             ocl::typeToStr(type), ocl::typeToStr(CV_32FC(cn)),
             ocl::convertTypeStr(CV_32S, CV_32F, cn, cvt[1]),
             ocl::convertTypeStr(CV_32F, CV_8U, cn, cvt[2]), gauss_color_coeff));
+#endif
     if (k.empty())
         return false;
 

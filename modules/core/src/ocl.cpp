@@ -69,17 +69,27 @@
 
 #ifdef CV_TIOPENCL
 
-#define MAX_PROHIBITED_SIZE   20
+#define MAX_PROHIBITED_SIZE  12
 
 const char * const prohibitedList[]={
-/*    "split","", // Module: Core
+	  "mixChannels", "", // Module: Core // repeated errors in accuracy tests. //Need to investigate why accuracy tests fail
+	  "split","cn=3", // Module: Core // Performance tests  OCL_SplitFixture_Split fail for cn=3
+	  "split", "T=int -D OP_SPLIT -D cn=2", // Module: Core // Performance tests  OCL_SplitFixture_Split fail for cn=3 T=int -D OP_SPLIT -D cn=2
+	  "boxFilter","cn=3", // Module: imgproc multiple sensitivity issues with 3 channels. Takes cares of BoxFilter and SqBoxFilter failures
+	  "laplacian", "float3", // Module: imgproc compile problem with float3
+	  "remap_2_32FC1", "BORDER_WRAP", //  Module: imgproc multiple sensitiviy errors in the accuracy test
+	  "remap_2_32FC1", "BORDER_REFLECT", //  Module: imgproc multiple sensitiviy errors in the accuracy test
+	  "calcLut", "WAVE_SIZE", // Module: imgproc // Accuracy failures with clahe
+      "warpBackwardKernel", "", //Module: Video // Image datatype is not supported by TI OpenCL
+	  "classify_hists_180_kernel", "", //Module: objdetect // Accuracy tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "classify_hists_252_kernel", "", //Module: objdetect // Accuracy tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
+	  "calcLUT", "" // Module: imgproc // Performance failures with OCL_EqualizeHistFixture_EqualizeHist.EqualizeHist
+/*	  "split","", // Module: Core
       "mixChannels", "", // Module: Core // repeated errors in accuracy tests
       "fastNlMeansDenoising", "cn=3", // Module: Photo //OpenCL runtime bug while setting kernel argument for float3 datatype.
       "fastNlMeansDenoising", "cn=4", // Module: Photo //OpenCL runtime bug while with AM57 when cn=4
-	  "remap", "INTER_LINEAR", // multiple sensitiviy errors in the accuracy test
-	  "boxFilter","cn=3", // multiple sensitivity issues with 3 channels
-      "copyMakeBorder","", // problem with clahe
-	  "laplacian", "float3", // compile problem with float3
+      "copyMakeBorder","", // Module: imgproc problem with clahe
+	  "laplacian", "float3", // Module: imgproc compile problem with float3
       "warpBackwardKernel", "", //Module: Video // Image datatype is not supported by TI OpenCL
 	  "runLBPClassifierStumpSimple","", //Module: objdetect //clocl seg faults when this kernel is compiled
 	  "BruteForceMatch_Match", "", //Module: features2d //clocl 1.1.1.2 when this kernel is compiled
@@ -111,24 +121,36 @@ const char * const performanceList[]={
 
 bool isProhibited(const char * kname, const char * buildOptions)
 {
-   //printf("&&&&& checking %s: ",kname);
+#ifdef CV_OPENCL_RUN_VERBOSE
+   printf("&&&&& checking %s: ",kname);
+#endif
    for(int i=0; i< 2*MAX_PROHIBITED_SIZE ;i+=2){
-      //printf("comparing (%s,%s) = %d\n",kname,prohibitedList[i], strcmp(prohibitedList[i],kname));
+#ifdef CV_OPENCL_RUN_VERBOSE
+      printf("comparing (%s,%s) = %d\n",kname,prohibitedList[i], strcmp(prohibitedList[i],kname));
+#endif
       if(strcmp(prohibitedList[i],kname) == 0){
-         //printf("kname matched (opt %d) : ", strlen(prohibitedList[i+1]));
+#ifdef CV_OPENCL_RUN_VERBOSE
+         printf("kname matched (opt %d) : ", strlen(prohibitedList[i+1]));
+#endif
          if(strlen(prohibitedList[i+1]) == 0){ // prohibited with any options
-            ///printf("found (1) \n");
+#ifdef CV_OPENCL_RUN_VERBOSE
+            printf("found (1) \n");
+#endif
             return true;
          }
          else {
             if(strstr(buildOptions, prohibitedList[i+1]) != 0){//(prohibitedList[i+1].find(buildOptions)!= std::string::npos ){
-               //printf("found\n");
+#ifdef CV_OPENCL_RUN_VERBOSE
+               printf("found\n");
+#endif
                return true;
             }
          }
       }
    }
-  // printf("not found\n");
+#ifdef CV_OPENCL_RUN_VERBOSE
+   printf("not found\n");
+#endif
    return false;
 }
 
@@ -2727,9 +2749,6 @@ static uint64 callCount = 0;
 #ifdef CV_OPENCL_RUN_VERBOSE
         printf("Limiting the number of kernels compiled\n");
 #endif
-
-        printf("Limiting the number of kernels compiled\n");
-
         String prefix = Program::getPrefix(buildflags);
         HashKey k(src.hash(), crc64((const uchar*)prefix.c_str(), prefix.size()));
         phash_t::iterator it = phash.find(k);
@@ -3510,7 +3529,13 @@ bool Kernel::create(const char* kname, const ProgramSource& src,
     String tempmsg;
     if( !errmsg ) errmsg = &tempmsg;
 #ifdef CV_TIOPENCL
+<<<<<<< HEAD
 	// checking the prohibited list
+=======
+#ifdef CV_OPENCL_RUN_VERBOSE
+    printf("kernel: %s\t buildoptions: %s\n", kname, buildopts.c_str());
+#endif
+>>>>>>> 5e35161... Added OCL kernels that fail to the prohibited list. Corrected the build options for Bilateral OCL kernel
     const Program& prog = isProhibited(kname,buildopts.c_str()) ? Program(): Context::getDefault().getProg(src, buildopts, *errmsg);
 #else
     const Program& prog = Context::getDefault().getProg(src, buildopts, *errmsg);
