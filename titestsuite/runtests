@@ -106,7 +106,7 @@ do
    if [ -f $testfun ];
    then
       echo "testing $i module"
-      eval "$testfun  --gtest_filter=-*OCL*:*ShapeEMD*:*StereoSGBM*:*seek_random_synthetic*:*Image.write_read*:**ffmpeg_writebig** >> $OUTLOG_FILENAME 2> tmp.txt" 
+      eval "$testfun  --gtest_filter=-*OCL*:*ShapeEMD*:*StereoSGBM*:*seek_random_synthetic*:*Image.write_read*:**ffmpeg_writebig*:*fisheyeTest.rectify*:*Image.write_imageseq* >> $OUTLOG_FILENAME 2> tmp.txt" 
       rm /tmp/*open* 2> tmp.txt
    fi
    # or do whatever with individual element of the array

@@ -88,7 +88,15 @@ using std::tr1::tuple;
 #define OCL_SIZE_3 sz1080p
 #define OCL_SIZE_4 sz2160p
 
+#ifdef CV_TIOPENCL
+/* Removing the 4K size from the performance testsuite. 4k size with 32 Floats are running out of memory on the DSP.
+ * There seems to be a memory leak when the performance tests run out of memory on the DSP. Need to revisit this
+ * memory leak
+ */
+#define OCL_TEST_SIZES ::testing::Values(OCL_SIZE_1, OCL_SIZE_2, OCL_SIZE_3)
+#else
 #define OCL_TEST_SIZES ::testing::Values(OCL_SIZE_1, OCL_SIZE_2, OCL_SIZE_3, OCL_SIZE_4)
+#endif
 #define OCL_TEST_TYPES ::testing::Values(CV_8UC1, CV_32FC1, CV_8UC4, CV_32FC4)
 #define OCL_TEST_TYPES_14 OCL_TEST_TYPES
 #define OCL_TEST_TYPES_134 ::testing::Values(CV_8UC1, CV_32FC1, CV_8UC3, CV_32FC3, CV_8UC4, CV_32FC4)
