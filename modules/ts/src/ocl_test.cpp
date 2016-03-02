@@ -144,9 +144,13 @@ void dumpOpenCLDevice()
         DUMP_MESSAGE_STDOUT("    Platform = "<< device.getPlatform().name());
         DUMP_PROPERTY_XML("cv_ocl_current_platformName", device.getPlatform().name());
 #endif
-
+#ifdef CV_TIOPENCL
+        const char* deviceTypeStr = device.type() == Device::TYPE_CPU
+                    ? ("CPU") : (device.type() == Device::TYPE_GPU ? device.hostUnifiedMemory() ? "iGPU" : "dGPU" : (device.type() == Device::TYPE_ACCELERATOR ? "TI_DSP" : "unknown"));
+#else
         const char* deviceTypeStr = device.type() == Device::TYPE_CPU
             ? ("CPU") : (device.type() == Device::TYPE_GPU ? device.hostUnifiedMemory() ? "iGPU" : "dGPU" : "unknown");
+#endif
         DUMP_MESSAGE_STDOUT("    Type = "<< deviceTypeStr);
         DUMP_PROPERTY_XML("cv_ocl_current_deviceType", deviceTypeStr);
 

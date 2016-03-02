@@ -69,7 +69,7 @@
 
 #ifdef CV_TIOPENCL
 
-#define MAX_PROHIBITED_SIZE  12
+#define MAX_PROHIBITED_SIZE  17
 
 const char * const prohibitedList[]={
 	  "mixChannels", "", // Module: Core // repeated errors in accuracy tests. //Need to investigate why accuracy tests fail
@@ -83,7 +83,12 @@ const char * const prohibitedList[]={
       "warpBackwardKernel", "", //Module: Video // Image datatype is not supported by TI OpenCL
 	  "classify_hists_180_kernel", "", //Module: objdetect // Accuracy tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
 	  "classify_hists_252_kernel", "", //Module: objdetect // Accuracy tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
-	  "calcLUT", "" // Module: imgproc // Performance failures with OCL_EqualizeHistFixture_EqualizeHist.EqualizeHist
+	  "calcLUT", "", // Module: imgproc // Performance failures with OCL_EqualizeHistFixture_EqualizeHist.EqualizeHist
+	  "filter2D", "-D BORDER_REPLICATE -D EXTRA_EXTRAPOLATION -D srcT=float",
+	  "filter2D", "-D BORDER_REPLICATE -D NO_EXTRA_EXTRAPOLATION -D srcT=float",
+	  "filter2D", "-D BORDER_REFLECT -D NO_EXTRA_EXTRAPOLATION -D srcT=float",
+	  "filter2D", "-D BORDER_REFLECT_101 -D NO_EXTRA_EXTRAPOLATION -D srcT=float",
+	  "LUT", "-D dcn=4 -D lcn=1 -D srcT=uchar -D dstT=uchar"
 /*	  "split","", // Module: Core
       "mixChannels", "", // Module: Core // repeated errors in accuracy tests
       "fastNlMeansDenoising", "cn=3", // Module: Photo //OpenCL runtime bug while setting kernel argument for float3 datatype.
@@ -3598,6 +3603,15 @@ int Kernel::set(int i, const KernelArg& arg)
 
         if (!h)
         {
+        	/* Dnparikh: When an allocation fails when a UMat is created on the DSP side.
+        	 * Say 2 buffers are allocated as Umat and the 3rd buffer is allocated as Mat
+        	 * When the third buffer is set as an argument to the kernel, since the 3rd
+        	 * buffer is a Mat and not UMat the kernel is deleted. However before deleting
+        	 * the kernel, the arguments that are set need to be cleaned up so that Urefcount
+        	 * is decremented so that the buffer is actually deallocated when it is cleaned up!
+        	 * Dnparikh added the p->cleanupUMats line.
+        	 */
+        	p->cleanupUMats();
             p->release();
             p = 0;
             return -1;
@@ -3670,7 +3684,7 @@ bool Kernel::run(int dims, size_t _globalsize[], size_t _localsize[],
                  bool sync, const Queue& q)
 {
     if(!p || !p->handle || p->e != 0)
-        return false;
+    	return false;
 
     cl_command_queue qq = getQueue(q);
     size_t offset[CV_MAX_DIM] = {0}, globalsize[CV_MAX_DIM] = {1,1,1};

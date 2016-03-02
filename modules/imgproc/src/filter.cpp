@@ -43,6 +43,8 @@
 #include "precomp.hpp"
 #include "opencl_kernels_imgproc.hpp"
 
+#include <iostream>
+
 /****************************************************************************************\
                                     Base Image Filter
 \****************************************************************************************/
@@ -4050,11 +4052,13 @@ static bool ocl_filter2D( InputArray _src, OutputArray _dst, int ddepth,
 
     // For smaller filter kernels, there is a special kernel that is more
     // efficient than the general one.
+
     UMat kernalDataUMat;
     if (device.isIntel() && (device.type() & ocl::Device::TYPE_GPU) &&
         ((ksize.width < 5 && ksize.height < 5) ||
         (ksize.width == 5 && ksize.height == 5 && cn == 1)))
     {
+
         kernelMat = kernelMat.reshape(0, 1);
         String kerStr = ocl::kernelToStr(kernelMat, CV_32F);
         int h = isolated ? sz.height : wholeSize.height;
@@ -4139,7 +4143,24 @@ static bool ocl_filter2D( InputArray _src, OutputArray _dst, int ddepth,
 
             if ((w < ksize.width) || (h < ksize.height))
                 return false;
-
+#ifdef CV_TIOPENCL
+            String opts = format("-D LOCAL_SIZE=%d -D cn=%d "
+                                 "-D ANCHOR_X=%d -D ANCHOR_Y=%d -D KERNEL_SIZE_X=%d -D KERNEL_SIZE_Y=%d "
+                                 "-D KERNEL_SIZE_Y2_ALIGNED=%d "
+            		             "-D %s -D %s "
+                                 "-D srcT=%s -D srcT1=%s -D dstT=%s -D dstT1=%s -D WT=%s -D WT1=%s "
+            					 "-D %s%s%s "
+                                 "-D convertToWT=%s -D convertToDstT=%s",
+                                 (int)BLOCK_SIZE, cn, anchor.x, anchor.y,
+                                 ksize.width, ksize.height, kernel_size_y2_aligned, borderMap[borderType],
+                                 extra_extrapolation ? "EXTRA_EXTRAPOLATION" : "NO_EXTRA_EXTRAPOLATION",
+                                 ocl::typeToStr(type), ocl::typeToStr(sdepth), ocl::typeToStr(dtype),
+                                 ocl::typeToStr(ddepth), ocl::typeToStr(wtype), ocl::typeToStr(wdepth),
+                                 isolated ? "BORDER_ISOLATED" : "NO_BORDER_ISOLATED",
+                                 doubleSupport ? " -D DOUBLE_SUPPORT" : "", kerStr.c_str(),
+                                 ocl::convertTypeStr(sdepth, wdepth, cn, cvt[0]),
+                                 ocl::convertTypeStr(wdepth, ddepth, cn, cvt[1]));
+#else
             String opts = format("-D LOCAL_SIZE=%d -D cn=%d "
                                  "-D ANCHOR_X=%d -D ANCHOR_Y=%d -D KERNEL_SIZE_X=%d -D KERNEL_SIZE_Y=%d "
                                  "-D KERNEL_SIZE_Y2_ALIGNED=%d -D %s -D %s -D %s%s%s "
@@ -4154,6 +4175,7 @@ static bool ocl_filter2D( InputArray _src, OutputArray _dst, int ddepth,
                                  ocl::typeToStr(ddepth), ocl::typeToStr(wtype), ocl::typeToStr(wdepth),
                                  ocl::convertTypeStr(sdepth, wdepth, cn, cvt[0]),
                                  ocl::convertTypeStr(wdepth, ddepth, cn, cvt[1]));
+#endif
 
             localsize[0] = BLOCK_SIZE;
             globalsize[0] = DIVUP(sz.width, BLOCK_SIZE - (ksize.width - 1)) * BLOCK_SIZE;

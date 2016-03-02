@@ -13,6 +13,7 @@ find_program(CMAKE_C_COMPILER NAMES arm-linux-gnueabi${FLOAT_ABI_SUFFIX}-gcc)
 find_program(CMAKE_CXX_COMPILER NAMES arm-linux-gnueabi${FLOAT_ABI_SUFFIX}-g++)
 find_program(CMAKE_AR NAMES arm-linux-gnueabi${FLOAT_ABI_SUFFIX}-ar)
 find_program(CMAKE_RANLIB NAMES arm-linux-gnueabi${FLOAT_ABI_SUFFIX}-ranlib)
+find_program(PKG_CONFIG_EXECUTABLE NAMES pkg-config)
 set(ARM_LINUX_SYSROOT /usr/arm-linux-gnueabi${FLOAT_ABI_SUFFIX} CACHE PATH "ARM cross compilation system root")
 
 set(CMAKE_CXX_FLAGS           ""                    CACHE STRING "c++ flags")

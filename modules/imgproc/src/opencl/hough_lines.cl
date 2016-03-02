@@ -271,9 +271,9 @@ __kernel void get_lines(__global const uchar * accum_ptr, int accum_step, int ac
                 return;
 
             for (;;)
-            {
-                if (*(src_ptr + mad24(p0.y, src_step, p0.x + src_offset)))
-                {
+            {             	
+                if (*(src_ptr + mad24((int) p0.y, src_step, ((int) p0.x) + src_offset)))
+                {                
                     gap = 0;
 
                     if (!inLine)
