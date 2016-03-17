@@ -80,7 +80,7 @@ const char * const prohibitedList[]={
 	  "remap_2_32FC1", "BORDER_WRAP", //  Module: imgproc multiple sensitiviy errors in the accuracy test
 	  "remap_2_32FC1", "BORDER_REFLECT", //  Module: imgproc multiple sensitiviy errors in the accuracy test
 	  "calcLut", "WAVE_SIZE", // Module: imgproc // Accuracy failures with clahe
-      "warpBackwardKernel", "", //Module: Video // Image datatype is not supported by TI OpenCL
+      	  "warpBackwardKernel", "", //Module: Video // Image datatype is not supported by TI OpenCL
 	  "classify_hists_180_kernel", "", //Module: objdetect // Accuracy tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
 	  "classify_hists_252_kernel", "", //Module: objdetect // Accuracy tests fail OCL_ObjDetect/HOG.Detect/0, where GetParam() = (64x128, 8UC1), & (48x96, 8UC1)
 	  "calcLUT", "", // Module: imgproc // Performance failures with OCL_EqualizeHistFixture_EqualizeHist.EqualizeHist
@@ -90,7 +90,7 @@ const char * const prohibitedList[]={
 	  "filter2D", "-D BORDER_REFLECT_101 -D NO_EXTRA_EXTRAPOLATION -D srcT=float",
 	  "LUT", "-D dcn=4 -D lcn=1 -D srcT=uchar -D dstT=uchar"
 /*	  "split","", // Module: Core
-      "mixChannels", "", // Module: Core // repeated errors in accuracy tests
+          "mixChannels", "", // Module: Core // repeated errors in accuracy tests
       "fastNlMeansDenoising", "cn=3", // Module: Photo //OpenCL runtime bug while setting kernel argument for float3 datatype.
       "fastNlMeansDenoising", "cn=4", // Module: Photo //OpenCL runtime bug while with AM57 when cn=4
       "copyMakeBorder","", // Module: imgproc problem with clahe
@@ -3534,13 +3534,9 @@ bool Kernel::create(const char* kname, const ProgramSource& src,
     String tempmsg;
     if( !errmsg ) errmsg = &tempmsg;
 #ifdef CV_TIOPENCL
-<<<<<<< HEAD
-	// checking the prohibited list
-=======
 #ifdef CV_OPENCL_RUN_VERBOSE
     printf("kernel: %s\t buildoptions: %s\n", kname, buildopts.c_str());
 #endif
->>>>>>> 5e35161... Added OCL kernels that fail to the prohibited list. Corrected the build options for Bilateral OCL kernel
     const Program& prog = isProhibited(kname,buildopts.c_str()) ? Program(): Context::getDefault().getProg(src, buildopts, *errmsg);
 #else
     const Program& prog = Context::getDefault().getProg(src, buildopts, *errmsg);
