@@ -90,11 +90,11 @@
 #if defined INTEL_DEVICE && defined DEPTH_0
 #define MORPH_OP(A, B) ((A) < (B) ? (A) : (B))
 #else
-#define MORPH_OP(A, B) min((A), (B))
+#define MORPH_OP(A, B) _min2((A), (B))
 #endif
 #endif
 #ifdef OP_DILATE
-#define MORPH_OP(A, B) max((A), (B))
+#define MORPH_OP(A, B) _max2((A), (B))
 #endif
 
 #define PROCESS(y, x) \
@@ -173,4 +173,172 @@ __kernel void morph(__global const uchar * srcptr, int src_step, int src_offset,
         storepix(res, dstptr + dst_index);
 #endif
     }
+}
+// Texas Instruments Inc 2016
+// DSP Friendly implementation of erode and dilate functions 
+// This is a subset of complete feature set available in generic baseline (above) kernels
+//
+#include <dsp_c.h>
+#include <edmamgr.h>
+
+#define MAX_LINE_SIZE 2048
+
+__attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_erode (__global const uchar * srcptr, int src_step, int src_offset,
+                    __global uchar * dstptr, int dst_step, int dst_offset,
+                    int src_offset_x, int src_offset_y, int cols, int rows,
+                    int src_whole_cols, int src_whole_rows)
+{
+  /* Binary input expected, 0 or 255 */
+  /* IMG_erode_bin((const unsigned char *)srcptr, (const unsigned char *)dstptr, (const char *)mask, cols); */
+  uchar *y_start_ptr = (uchar *)srcptr;
+  uchar * restrict dest_ptr;
+  uchar * restrict yprev_ptr;
+  uchar * restrict y_ptr;
+  uchar * restrict ynext_ptr;
+  uchar result;
+  int   rd_idx, start_rd_idx, fetch_rd_idx;
+  int   gid   = get_global_id(0);
+  EdmaMgr_Handle evIN  = EdmaMgr_alloc(1);
+  local uchar img_lines[4*MAX_LINE_SIZE];
+  int clk_start, clk_end;
+  clk_start = __clock();
+  int tot_pixels = 0;
+  if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
+/**
+  printf("TIDSP_erode: gid=%d clock_ticks:%08x\n", get_global_id(0), __clock());
+**/
+  rows >>= 1;
+  dest_ptr = (uchar *)dstptr;
+
+  if(gid == 0)
+  { /* Upper half of image */
+    memset (img_lines, 0, 2 * MAX_LINE_SIZE);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    fetch_rd_idx = cols;
+  } else if(gid == 1)
+  { /* Bottom half of image */
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 2) * cols), (void*)(img_lines), cols);
+    EdmaMgr_wait(evIN);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 1) * cols), (void*)(img_lines + MAX_LINE_SIZE), cols);
+    EdmaMgr_wait(evIN);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + rows * cols), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    fetch_rd_idx = (rows + 1) * cols;
+    dest_ptr += rows * cols;
+  } else return;
+  start_rd_idx = 0;
+
+  for (int y = 0; y < rows; y ++)
+  {
+    EdmaMgr_wait(evIN);
+    rd_idx  = start_rd_idx;
+    yprev_ptr = (uchar *)&img_lines[rd_idx];
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    start_rd_idx = rd_idx;
+    y_ptr     = (uchar *)&img_lines[rd_idx];
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    ynext_ptr = (uchar *)&img_lines[rd_idx];
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]), cols);
+    fetch_rd_idx += cols;
+
+    for (int x = 0; x < cols; x ++)
+    { /* Input pixels are either 255 or 0, i.e. binary */ 
+       result  = *yprev_ptr ++;
+       result &= *yprev_ptr ++;
+       result &= *yprev_ptr --;
+       result &= *y_ptr ++;
+       result &= *y_ptr ++;
+       result &= *y_ptr --;
+       result &= *ynext_ptr ++;
+       result &= *ynext_ptr ++;
+       result &= *ynext_ptr --;
+       *dest_ptr ++ = result;
+       tot_pixels ++;
+    }
+  }
+  EdmaMgr_wait(evIN);
+  EdmaMgr_free(evIN);
+
+  clk_end = __clock();
+  printf ("TIDSP clockdiff=%d pixels=%d\n", clk_end - clk_start, tot_pixels);
+}
+/********************************************************************************************/
+__attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_dilate (__global const uchar * srcptr, int src_step, int src_offset,
+                    __global uchar * dstptr, int dst_step, int dst_offset,
+                    int src_offset_x, int src_offset_y, int cols, int rows,
+                    int src_whole_cols, int src_whole_rows)
+{
+  /* Binary input expected, 0 or 255 */
+  /* IMG_erode_bin((const unsigned char *)srcptr, (const unsigned char *)dstptr, (const char *)mask, cols); */
+  uchar *y_start_ptr = (uchar *)srcptr;
+  uchar * restrict dest_ptr;
+  uchar * restrict yprev_ptr;
+  uchar * restrict y_ptr;
+  uchar * restrict ynext_ptr;
+  uchar result;
+  int   rd_idx, start_rd_idx, fetch_rd_idx;
+  int   gid   = get_global_id(0);
+  EdmaMgr_Handle evIN  = EdmaMgr_alloc(1);
+  local uchar img_lines[4*MAX_LINE_SIZE];
+  int tot_pixels = 0;
+  int clk_start, clk_end;
+  clk_start = __clock();
+
+  if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
+/**
+  printf("TIDSP_dilate: gid=%d clock_ticks:%08x\n", get_global_id(0), __clock());
+**/
+  rows >>= 1;
+  dest_ptr = (uchar *)dstptr;
+
+  if(gid == 0)
+  { /* Upper half of image */
+    memset (img_lines, 0, 2 * MAX_LINE_SIZE);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    fetch_rd_idx = cols;
+  } else if(gid == 1)
+  { /* Bottom half of image */
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 2) * cols), (void*)(img_lines), cols);
+    EdmaMgr_wait(evIN);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 1) * cols), (void*)(img_lines + MAX_LINE_SIZE), cols);
+    EdmaMgr_wait(evIN);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + rows * cols), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    fetch_rd_idx = (rows + 1) * cols;
+    dest_ptr += rows * cols;
+  } else return;
+  start_rd_idx = 0;
+
+  for (int y = 0; y < rows; y ++)
+  {
+    EdmaMgr_wait(evIN);
+    rd_idx  = start_rd_idx;
+    yprev_ptr = (uchar *)&img_lines[rd_idx];
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    start_rd_idx = rd_idx;
+    y_ptr     = (uchar *)&img_lines[rd_idx];
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    ynext_ptr = (uchar *)&img_lines[rd_idx];
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]), cols);
+    fetch_rd_idx += cols;
+
+    for (int x = 0; x < cols; x ++)
+    { /* Input pixels are either 255 or 0, i.e. binary */ 
+       result  = *yprev_ptr ++;
+       result |= *yprev_ptr ++;
+       result |= *yprev_ptr --;
+       result |= *y_ptr ++;
+       result |= *y_ptr ++;
+       result |= *y_ptr --;
+       result |= *ynext_ptr ++;
+       result |= *ynext_ptr ++;
+       result |= *ynext_ptr --;
+       *dest_ptr ++ = result;
+       tot_pixels ++;
+    }
+  }
+  EdmaMgr_wait(evIN);
+  EdmaMgr_free(evIN);
+  clk_end = __clock();
+  printf ("TIDSP clockdiff=%d pixels=%d\n", clk_end - clk_start, tot_pixels);
 }

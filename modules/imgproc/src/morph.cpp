@@ -43,6 +43,8 @@
 #include "precomp.hpp"
 #include <limits.h>
 #include "opencl_kernels_imgproc.hpp"
+#include <stdio.h>
+#include <stdlib.h>
 
 /****************************************************************************************\
                      Basic Morphological Operations: Erosion & Dilation
@@ -1656,7 +1658,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         // Single quotes are required for the PROCESS_ELEMS argument
         String buildOptions = format("-D RADIUSX=%d -D RADIUSY=%d -D LSIZE0=%d -D LSIZE1=%d -D %s%s"
                                      " -D PROCESS_ELEMS='%s' -D T=%s -D DEPTH_%d -D cn=%d -D T1=%s"
-                                     " -D convertToWT=%s -D convertToT=%s -D ST=%s%s",
+                                     " -D convertToWT=%s -D convertToT=%s -D ST=%s%s -DHAVE_TIIMGLIB",
                                      anchor.x, anchor.y, (int)localThreads[0], (int)localThreads[1], op2str[op],
                                      doubleSupport ? " -D DOUBLE_SUPPORT" : "", processing.c_str(),
                                      ocl::typeToStr(type), depth, cn, ocl::typeToStr(depth),
@@ -1664,6 +1666,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
                                      ocl::convertTypeStr(wdepth, depth, cn, cvt[1]),
                                      ocl::typeToStr(CV_MAKE_TYPE(depth, scalarcn)),
                                      current_op == op ? "" : cv::format(" -D %s", op2str[current_op]).c_str());
+
 #else
         String buildOptions = format("-D RADIUSX=%d -D RADIUSY=%d -D LSIZE0=%d -D LSIZE1=%d -D %s%s"
                                      " -D PROCESS_ELEMS=%s -D T=%s -D DEPTH_%d -D cn=%d -D T1=%s"
@@ -1677,7 +1680,15 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
                                      current_op == op ? "" : cv::format(" -D %s", op2str[current_op]).c_str());
 #endif
 
+#ifdef CV_TIOPENCL
+        if(op == 0) {
+          kernels[i].create("tidsp_morph_erode", ocl::imgproc::morph_oclsrc, buildOptions);
+        } else if(op == 1) {
+          kernels[i].create("tidsp_morph_dilate", ocl::imgproc::morph_oclsrc, buildOptions);
+        } else 
+#endif
         kernels[i].create("morph", ocl::imgproc::morph_oclsrc, buildOptions);
+
         if (kernels[i].empty())
             return false;
     }
@@ -1693,15 +1704,29 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         src.locateROI(wholesize, ofs);
         int wholecols = wholesize.width, wholerows = wholesize.height;
 
-        if (haveExtraMat)
+        kernels[0].args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnlyNoSize(dst),
+                        ofs.x, ofs.y, src.cols, src.rows, wholecols, wholerows);
+#ifdef CV_TIOPENCL
+        if(op == 0 || op == 1)
+        { //TIDSP specific implementation for erode and dilate only
+           size_t globalSize[3], localSize[3];
+           globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;
+           localSize[0] = localSize[1] = localSize[2] = 1;
+           return kernels[0].run(1, globalSize, localSize, false);
+           //return kernels[0].runTask(false);
+        } else
+#endif
+        {
+          if (haveExtraMat)
             kernels[0].args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnlyNoSize(dst),
                         ofs.x, ofs.y, src.cols, src.rows, wholecols, wholerows,
                         ocl::KernelArg::ReadOnlyNoSize(extraMat));
-        else
+          else
             kernels[0].args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnlyNoSize(dst),
                         ofs.x, ofs.y, src.cols, src.rows, wholecols, wholerows);
 
-        return kernels[0].run(2, globalThreads, localThreads, false);
+          return kernels[0].run(2, globalThreads, localThreads, false);
+        }
     }
 
     for (int i = 0; i < iterations; i++)
