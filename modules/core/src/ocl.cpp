@@ -3562,7 +3562,6 @@ int Kernel::set(int i, const void* value, size_t sz)
         return i;
     if( i == 0 )
         p->cleanupUMats();
-
     cl_int retval = clSetKernelArg(p->handle, (cl_uint)i, sz, value);
     CV_OclDbgAssert(retval == CL_SUCCESS);
     if (retval != CL_SUCCESS)
@@ -3821,6 +3820,20 @@ struct Program::Impl
                 buildflags += " -D INTEL_DEVICE";
 #ifdef CV_OPENCL_RUN_VERBOSE
             printf("clBuildProgram \n");
+#endif
+
+#ifdef CV_TIOPENCL
+            if(strstr(buildflags.c_str(), "-DHAVE_TIIMGLIB") != 0)
+            { // Link with DSP IMGLIB library 
+                buildflags += " /usr/share/ti/ti-imglib-c66x-tree/lib/imglib.ae66 ";
+            }
+#endif
+
+#ifdef CV_TIOPENCL
+            if(strstr(buildflags.c_str(), "-DHAVE_TIMOG2LIB") != 0)
+            { // Link with the custome DSP MOG2 library (optional)
+                buildflags += " /usr/share/ti/opencv/timog2.a ";
+            }
 #endif
             retval = clBuildProgram(handle, n,
                                     (const cl_device_id*)deviceList,
