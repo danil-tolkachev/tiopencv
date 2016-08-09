@@ -196,8 +196,14 @@ public:
         if (ocl::useOpenCL() && opencl_ON)
         {
             create_ocl_apply_kernel();
+#ifdef CV_TIOPENCL
+            //kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-v -D CN=%d -D NMIXTURES=%d  -DHAVE_TIMOG2LIB %s", nchannels, nmixtures, 
+            //                    bShadowDetection ? "-DSHADOW_DETECT" : "" ));
+            kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s -DTIDSP_MOG2 ", nchannels, nmixtures,
+                                bShadowDetection ? "-DSHADOW_DETECT" : "" ));
+#else
             kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d", nchannels, nmixtures));
-
+#endif
             if (kernel_apply.empty() || kernel_getBg.empty())
                 opencl_ON = false;
         }
@@ -797,8 +803,17 @@ bool BackgroundSubtractorMOG2Impl::ocl_apply(InputArray _image, OutputArray _fgm
     if (bShadowDetection)
         kernel_apply.set(idxArg, nShadowDetection);
 
+#ifdef CV_TIOPENCL
+    //Two work groups only - one for each DSP cores (AM57x tuned) 
+    size_t globalsize[] = {2, 1, 1};
+    size_t localsize[]  = {1, 1, 1};
+    return kernel_apply.run(2, globalsize, localsize, true);
+// Single task execution (good for testing and single core only):
+//  return kernel_apply.runTask(true);
+#else
     size_t globalsize[] = {(size_t)frame.cols, (size_t)frame.rows, 1};
     return kernel_apply.run(2, globalsize, NULL, true);
+#endif
 }
 
 bool BackgroundSubtractorMOG2Impl::ocl_getBackgroundImage(OutputArray _backgroundImage) const
@@ -823,8 +838,15 @@ bool BackgroundSubtractorMOG2Impl::ocl_getBackgroundImage(OutputArray _backgroun
 void BackgroundSubtractorMOG2Impl::create_ocl_apply_kernel()
 {
     int nchannels = CV_MAT_CN(frameType);
+#ifdef CV_TIOPENCL
+// Macro HAVE_TIMOG2LIB would trigger linking with external DSP library (as specified in core/src/ocl.cpp) 
+//    String opts = format("-v -D CN=%d -D NMIXTURES=%d%s -DHAVE_TIMOG2LIB -DTIDSP_MOG2", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
+    String opts = format("-v -D CN=%d -D NMIXTURES=%d%s -DTIDSP_MOG2 ", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
+    kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
+#else
     String opts = format("-D CN=%d -D NMIXTURES=%d%s", nchannels, nmixtures, bShadowDetection ? " -D SHADOW_DETECT" : "");
     kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
+#endif
 }
 
 #endif
