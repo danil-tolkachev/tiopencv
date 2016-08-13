@@ -172,6 +172,8 @@ __kernel void morph(__global const uchar * srcptr, int src_step, int src_offset,
 #else // erode or dilate
         storepix(res, dstptr + dst_index);
 #endif
+
+
     }
 }
 // Texas Instruments Inc 2016
@@ -183,7 +185,7 @@ __kernel void morph(__global const uchar * srcptr, int src_step, int src_offset,
 
 #define MAX_LINE_SIZE 2048
 
-__attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_erode (__global const uchar * srcptr, int src_step, int src_offset,
+__attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__global const uchar * srcptr, int src_step, int src_offset,
                     __global uchar * dstptr, int dst_step, int dst_offset,
                     int src_offset_x, int src_offset_y, int cols, int rows,
                     int src_whole_cols, int src_whole_rows)
@@ -198,15 +200,23 @@ __attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_erode (__
   uchar result;
   int   rd_idx, start_rd_idx, fetch_rd_idx;
   int   gid   = get_global_id(0);
-  EdmaMgr_Handle evIN  = EdmaMgr_alloc(1);
+  EdmaMgr_Handle evIN  = EdmaMgr_alloc(3);
+  unsigned int srcPtr[3], dstPtr[3], numBytes[3];
   local uchar img_lines[4*MAX_LINE_SIZE];
   int clk_start, clk_end;
-  clk_start = __clock();
-  int tot_pixels = 0;
+  int i, j;
+
+  long dupper_word, dmid_word, dlower_word, dres0;
+  unsigned int upper_word, mid_word, lower_word;
+  unsigned int res0, res1;
+  unsigned int dst_pixelU, dst_pixelL;
+  unsigned int dst_pixelUu, dst_pixelLu;
+  unsigned int byte0, byte1, byte2, byte3;
+  unsigned int byte4, byte5;
+
   if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
-/**
-  printf("TIDSP_erode: gid=%d clock_ticks:%08x\n", get_global_id(0), __clock());
-**/
+
+  clk_start = __clock();
   rows >>= 1;
   dest_ptr = (uchar *)dstptr;
 
@@ -217,11 +227,14 @@ __attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_erode (__
     fetch_rd_idx = cols;
   } else if(gid == 1)
   { /* Bottom half of image */
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 2) * cols), (void*)(img_lines), cols);
-    EdmaMgr_wait(evIN);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 1) * cols), (void*)(img_lines + MAX_LINE_SIZE), cols);
-    EdmaMgr_wait(evIN);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + rows * cols), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    srcPtr[0] = (unsigned int)(srcptr + (rows - 2) * cols);
+    srcPtr[1] = (unsigned int)(srcptr + (rows - 1) * cols);
+    srcPtr[2] = (unsigned int)(srcptr + (rows - 0) * cols);
+    dstPtr[0] = (unsigned int)(img_lines + 0 * MAX_LINE_SIZE);  
+    dstPtr[1] = (unsigned int)(img_lines + 1 * MAX_LINE_SIZE);  
+    dstPtr[2] = (unsigned int)(img_lines + 2 * MAX_LINE_SIZE);  
+    numBytes[0] = numBytes[1] = numBytes[2] = cols;
+    EdmaMgr_copy1D1DLinked(evIN, srcPtr, dstPtr, numBytes, 3);
     fetch_rd_idx = (rows + 1) * cols;
     dest_ptr += rows * cols;
   } else return;
@@ -232,38 +245,60 @@ __attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_erode (__
     EdmaMgr_wait(evIN);
     rd_idx  = start_rd_idx;
     yprev_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
     start_rd_idx = rd_idx;
     y_ptr     = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
     ynext_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]), cols);
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
+    EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]));
     fetch_rd_idx += cols;
-
-    for (int x = 0; x < cols; x ++)
-    { /* Input pixels are either 255 or 0, i.e. binary */ 
-       result  = *yprev_ptr ++;
-       result &= *yprev_ptr ++;
-       result &= *yprev_ptr --;
-       result &= *y_ptr ++;
-       result &= *y_ptr ++;
-       result &= *y_ptr --;
-       result &= *ynext_ptr ++;
-       result &= *ynext_ptr ++;
-       result &= *ynext_ptr --;
-       *dest_ptr ++ = result;
-       tot_pixels ++;
+#pragma unroll 2
+    for (i = 0; i < cols; i += 2) {
+#if 1
+        upper_word      = _mem4_const(&yprev_ptr[i]);
+        mid_word        = _mem4_const(&y_ptr[i]);
+        lower_word      = _mem4_const(&ynext_ptr[i]);
+        res0            = _minu4(lower_word, _minu4 (upper_word, mid_word));
+        byte3           = _extu(res0,  0, 24);
+        byte2           = _extu(res0,  8, 24);
+        byte1           = _extu(res0, 16, 24);
+        byte0           = _extu(res0, 24, 24);
+        dst_pixelL      = _min2(byte0, _min2(byte2, byte1));
+        dst_pixelU      = _min2(byte1, _min2(byte3, byte2));
+        _mem2(&dest_ptr[i]) = (unsigned short)((dst_pixelU << 8) | dst_pixelL);
+#endif
+#if 0
+        dupper_word      = _mem8_const(&yprev_ptr[i]);
+        dmid_word        = _mem8_const(&y_ptr[i]);
+        dlower_word      = _mem8_const(&ynext_ptr[i]);
+        dres0            = _dminu4(dupper_word, dmid_word);
+        dres0            = _dminu4(dres0, dlower_word);
+        res0             = _lo(dres0);
+        byte3            = _extu(res0,  0, 24);
+        byte2            = _extu(res0,  8, 24);
+        byte1            = _extu(res0, 16, 24);
+        byte0            = _extu(res0, 24, 24);
+        dst_pixelL       = _min2(byte0, _min2(byte1, byte2));
+        dst_pixelU       = _min2(byte1, _min2(byte2, byte3));
+        res0             = _hi(dres0);
+        byte5            = _extu(res0, 16, 24);
+        byte4            = _extu(res0, 24, 24);
+        dst_pixelLu      = _min2(byte2, _min2(byte3, byte4));
+        dst_pixelUu      = _min2(byte3, _min2(byte4, byte5));
+        _amem4(&dest_ptr[i]) = _packl4(_pack2(dst_pixelUu, dst_pixelLu), _pack2(dst_pixelU, dst_pixelLu));
+#endif
     }
+    dest_ptr += cols;
   }
   EdmaMgr_wait(evIN);
   EdmaMgr_free(evIN);
 
   clk_end = __clock();
-  printf ("TIDSP clockdiff=%d pixels=%d\n", clk_end - clk_start, tot_pixels);
+  printf ("TIDSP erode clockdiff=%d\n", clk_end - clk_start);
 }
 /********************************************************************************************/
-__attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_dilate (__global const uchar * srcptr, int src_step, int src_offset,
+__attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (__global const uchar * srcptr, int src_step, int src_offset,
                     __global uchar * dstptr, int dst_step, int dst_offset,
                     int src_offset_x, int src_offset_y, int cols, int rows,
                     int src_whole_cols, int src_whole_rows)
@@ -278,16 +313,26 @@ __attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_dilate (_
   uchar result;
   int   rd_idx, start_rd_idx, fetch_rd_idx;
   int   gid   = get_global_id(0);
-  EdmaMgr_Handle evIN  = EdmaMgr_alloc(1);
+  EdmaMgr_Handle evIN  = EdmaMgr_alloc(3);
+  unsigned int srcPtr[3], dstPtr[3], numBytes[3];
   local uchar img_lines[4*MAX_LINE_SIZE];
-  int tot_pixels = 0;
   int clk_start, clk_end;
+  int i, j;
+  unsigned int upper_word, mid_word, lower_word;
+  unsigned int res0, res1, res2, res3, res4, res5;
+  unsigned short dst_pixel;
+  unsigned short dst_pixelL, dst_pixelU;
+  unsigned int   byte0, byte1, byte2, byte3;
+
+  /* -------------------------------------------------------------------- */
+  /*  "Don't care" values in mask become '1's for the ORing step.  We     */
+  /*  do this by converting negative values to "-1" (all 1s in binary)    */
+  /*  and converting positive values to 0.                                */
+  /* -------------------------------------------------------------------- */
+
   clk_start = __clock();
 
   if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
-/**
-  printf("TIDSP_dilate: gid=%d clock_ticks:%08x\n", get_global_id(0), __clock());
-**/
   rows >>= 1;
   dest_ptr = (uchar *)dstptr;
 
@@ -298,11 +343,14 @@ __attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_dilate (_
     fetch_rd_idx = cols;
   } else if(gid == 1)
   { /* Bottom half of image */
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 2) * cols), (void*)(img_lines), cols);
-    EdmaMgr_wait(evIN);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + (rows - 1) * cols), (void*)(img_lines + MAX_LINE_SIZE), cols);
-    EdmaMgr_wait(evIN);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + rows * cols), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    srcPtr[0] = (unsigned int)(srcptr + (rows - 2) * cols);
+    srcPtr[1] = (unsigned int)(srcptr + (rows - 1) * cols);
+    srcPtr[2] = (unsigned int)(srcptr + (rows - 0) * cols);
+    dstPtr[0] = (unsigned int)(img_lines + 0 * MAX_LINE_SIZE);  
+    dstPtr[1] = (unsigned int)(img_lines + 1 * MAX_LINE_SIZE);  
+    dstPtr[2] = (unsigned int)(img_lines + 2 * MAX_LINE_SIZE);  
+    numBytes[0] = numBytes[1] = numBytes[2] = cols;
+    EdmaMgr_copy1D1DLinked(evIN, srcPtr, dstPtr, numBytes, 3);
     fetch_rd_idx = (rows + 1) * cols;
     dest_ptr += rows * cols;
   } else return;
@@ -313,32 +361,48 @@ __attribute__((reqd_work_group_size(2,1,1))) __kernel void tidsp_morph_dilate (_
     EdmaMgr_wait(evIN);
     rd_idx  = start_rd_idx;
     yprev_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
     start_rd_idx = rd_idx;
     y_ptr     = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
     ynext_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (MAX_LINE_SIZE - 1);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]), cols);
+    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
+    EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]));
     fetch_rd_idx += cols;
-
-    for (int x = 0; x < cols; x ++)
-    { /* Input pixels are either 255 or 0, i.e. binary */ 
-       result  = *yprev_ptr ++;
-       result |= *yprev_ptr ++;
-       result |= *yprev_ptr --;
-       result |= *y_ptr ++;
-       result |= *y_ptr ++;
-       result |= *y_ptr --;
-       result |= *ynext_ptr ++;
-       result |= *ynext_ptr ++;
-       result |= *ynext_ptr --;
-       *dest_ptr ++ = result;
-       tot_pixels ++;
+#pragma unroll 2
+    for (i = 0; i < cols; i += 2) {
+#if 0
+        upper_word      = _mem4_const(&yprev_ptr[i]);
+        mid_word        = _mem4_const(&y_ptr[i]);
+        lower_word      = _mem4_const(&ynext_ptr[i]);
+        res0            = _dotpu4 (upper_word, 0x00010101);
+        res1            = _dotpu4 (mid_word,   0x00010101);
+        res2            = _dotpu4 (lower_word, 0x00010101);
+        res3            = _dotpu4 (upper_word, 0x01010100);
+        res4            = _dotpu4 (mid_word,   0x01010100);
+        res5            = _dotpu4 (lower_word, 0x01010100);
+        dst_pixel       = 0;
+        if((res0 + res1 + res2) > 0) dst_pixel = 0x00ff;
+        if((res3 + res4 + res5) > 0) dst_pixel |= 0xff00;
+#else
+        upper_word      = _mem4_const(&yprev_ptr[i]);
+        mid_word        = _mem4_const(&y_ptr[i]);
+        lower_word      = _mem4_const(&ynext_ptr[i]);
+        res0            = _maxu4 (lower_word, _maxu4 (upper_word, mid_word));
+        byte3           = _extu(res0,  0, 24);
+        byte2           = _extu(res0,  8, 24);
+        byte1           = _extu(res0, 16, 24);
+        byte0           = _extu(res0, 24, 24);
+        dst_pixelL      = _max2(byte0, _max2(byte1, byte2));
+        dst_pixelU      = _max2(byte1, _max2(byte2, byte3));
+        _mem2(&dest_ptr[i]) = (unsigned short)((dst_pixelU << 8) | dst_pixelL);
+#endif
     }
+    dest_ptr += cols;
   }
   EdmaMgr_wait(evIN);
   EdmaMgr_free(evIN);
   clk_end = __clock();
-  printf ("TIDSP clockdiff=%d pixels=%d\n", clk_end - clk_start, tot_pixels);
+  printf ("TIDSP dilate clockdiff=%d\n", clk_end - clk_start);
 }
+

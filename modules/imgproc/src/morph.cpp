@@ -1712,7 +1712,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
            size_t globalSize[3], localSize[3];
            globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;
            localSize[0] = localSize[1] = localSize[2] = 1;
-           return kernels[0].run(1, globalSize, localSize, false);
+           return kernels[0].run(1, globalSize, localSize, true);
            //return kernels[0].runTask(false);
         } else
 #endif
@@ -1767,8 +1767,20 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
             kernels[i].args(ocl::KernelArg::ReadOnlyNoSize(source), ocl::KernelArg::WriteOnlyNoSize(dst),
                 ofs.x, ofs.y, source.cols, source.rows, wholesize.width, wholesize.height);
 
-        if (!kernels[i].run(2, globalThreads, localThreads, false))
-            return false;
+#ifdef CV_TIOPENCL
+        if((op == 0) || (op == 1))
+        { //TIDSP specific implementation for erode and dilate only
+           size_t globalSize[3], localSize[3];
+           globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;
+           localSize[0] = localSize[1] = localSize[2] = 1;
+           return kernels[0].run(1, globalSize, localSize, true);
+           //return kernels[0].runTask(false);
+        } else
+#endif
+        {
+           if (!kernels[i].run(2, globalThreads, localThreads, false))
+               return false;
+        }
     }
 
     return true;
