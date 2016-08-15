@@ -1,4 +1,7 @@
 #ifdef TIDSP_MOG2
+/************************************************/
+/* TI DSP specific OPENCV OpenCL implementation */
+/************************************************/
 
 #if CN==1
 
@@ -63,7 +66,8 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
   int dst_idx, src_idx, tmp_mode;
   float *_weight, *_variance, *_mean;
   int idx_step = frame_row * frame_col;
-  int srcEDMA[(NMIXTURES+1)*3];
+  int srcEDMAin[(NMIXTURES+1)*3];
+  int srcEDMAout[(NMIXTURES+1)*3];
   int dstEDMA[3][(NMIXTURES+1)*3];
   int num_bytesEDMA[(NMIXTURES+1)*3];
   int ping_pong_in   = 0;
@@ -79,17 +83,22 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
     if(get_global_id(0) == 0) {
       start_y = 0;
       end_y   = frame_row >> 1;
-    } else {
+    } else if(get_global_id(0) == 1) {
       start_y = frame_row >> 1;
       end_y   = frame_row;
+    } else {
+      printf ("TIDSP: mog2_kernel DSP implementation can run on 2 cores only\n");
+      return;
     }
+    //Initial data transfer to L2 memory (triple-buffered)
     for(tmp_mode = 0; tmp_mode <= NMIXTURES; tmp_mode ++)
     {
       dst_idx = tmp_mode * SUBLINE_CACHE;
-      src_idx = tmp_mode * idx_step + y * frame_col + 0;
-      srcEDMA[tmp_mode * 3 + 0] = (int)&weight[src_idx];
-      srcEDMA[tmp_mode * 3 + 1] = (int)&variance[src_idx];
-      srcEDMA[tmp_mode * 3 + 2] = (int)&mean[src_idx];
+      src_idx = tmp_mode * idx_step + start_y * frame_col;
+      src_idx *= sizeof(float);
+      srcEDMAin[tmp_mode * 3 + 0] = (int)&weight[src_idx];
+      srcEDMAin[tmp_mode * 3 + 1] = (int)&variance[src_idx];
+      srcEDMAin[tmp_mode * 3 + 2] = (int)&mean[src_idx];
       dstEDMA[0][tmp_mode * 3 + 0] = (int)&line_weight[dst_idx];
       dstEDMA[0][tmp_mode * 3 + 1] = (int)&line_variance[dst_idx];
       dstEDMA[0][tmp_mode * 3 + 2] = (int)&line_mean[dst_idx];
@@ -101,20 +110,26 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
       dstEDMA[2][tmp_mode * 3 + 2] = (int)&line_mean[dst_idx + 2 * (NMIXTURES+1) * SUBLINE_CACHE];
       num_bytesEDMA[tmp_mode * 3 +0] = num_bytesEDMA[tmp_mode * 3 +1] = num_bytesEDMA[tmp_mode * 3 +2] = SUBLINE_CACHE * sizeof(float);
     }
-    EdmaMgr_copy1D1DLinked(evIN, srcEDMA, dstEDMA[ping_pong_in], num_bytesEDMA, 3 * (NMIXTURES+1));
-    ping_pong_in ++;
-    if(ping_pong_in > 2) ping_pong_in = 0;
-
+    EdmaMgr_copy1D1DLinked(evIN, srcEDMAin, dstEDMA[ping_pong_in], num_bytesEDMA, 3 * (NMIXTURES+1));
+    //================================================>
+    //               |                |  ping_pong_in
+    //               | ping_pong_proc |
+    // ping_pong_out |                |
+    //================================================>
     for (y = start_y; y < end_y; y++)
     {
     for (outx = 0; outx < frame_col; outx+= SUBLINE_CACHE)
     {
     for(tmp_mode = 0; tmp_mode <= NMIXTURES; tmp_mode ++)
     {
-      src_idx = tmp_mode * idx_step + y * frame_col + outx;
-      srcEDMA[tmp_mode * 3 + 0] = (int)&weight[src_idx];
-      srcEDMA[tmp_mode * 3 + 1] = (int)&variance[src_idx];
-      srcEDMA[tmp_mode * 3 + 2] = (int)&mean[src_idx];
+      srcEDMAout[tmp_mode * 3 + 0] = srcEDMAin[tmp_mode * 3 + 0];
+      srcEDMAout[tmp_mode * 3 + 1] = srcEDMAin[tmp_mode * 3 + 1];
+      srcEDMAout[tmp_mode * 3 + 2] = srcEDMAin[tmp_mode * 3 + 2];
+      src_idx = tmp_mode * idx_step + y * frame_col + outx + SUBLINE_CACHE;
+      src_idx *= sizeof(float);
+      srcEDMAin[tmp_mode * 3 + 0] = (int)&weight[src_idx];
+      srcEDMAin[tmp_mode * 3 + 1] = (int)&variance[src_idx];
+      srcEDMAin[tmp_mode * 3 + 2] = (int)&mean[src_idx];
     }
     _weight   = (float *)&line_weight[ping_pong_proc * (NMIXTURES+1) * SUBLINE_CACHE];
     _variance = (float *)&line_variance[ping_pong_proc * (NMIXTURES+1) * SUBLINE_CACHE];
@@ -122,9 +137,9 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
     ping_pong_proc ++;
     if(ping_pong_proc > 2) ping_pong_proc = 0;
     EdmaMgr_wait(evIN);
-    EdmaMgr_copyLinkedFast(evIN, srcEDMA, dstEDMA[ping_pong_in], 3 * (NMIXTURES+1));
     ping_pong_in ++;
     if(ping_pong_in > 2) ping_pong_in = 0;
+    EdmaMgr_copyLinkedFast(evIN, srcEDMAin, dstEDMA[ping_pong_in], 3 * (NMIXTURES+1));
 
 clk_start = __clock();
     for (inx = 0; inx < SUBLINE_CACHE; inx++)
@@ -196,7 +211,7 @@ clk_start = __clock();
             totalWeight += c_weight;
             loc_mode_idx += SUBLINE_CACHE;
         }
-        
+
         for (; mode < nmodes; ++mode)
         {
             float c_weight = mad(alpha1, _weight[loc_mode_idx], prune);
@@ -296,20 +311,21 @@ clk_start = __clock();
 #endif
         __global uchar* _fgmask = fgmask + mad24(y, fgmask_step, x + fgmask_offset);
         *_fgmask = (uchar)foreground;
-    } //inx
+    } //for(inx)
 clk_end = __clock();
 clk_tot += (unsigned int)(clk_end - clk_start);
     if(ping_pong_out < 0) {
-      ping_pong_out = 0;
-      EdmaMgr_copy1D1DLinked(evOUT, dstEDMA[ping_pong_out], srcEDMA, num_bytesEDMA, 3 * (NMIXTURES+1));
+      ping_pong_out = 0; //First pass
+      EdmaMgr_copy1D1DLinked(evOUT, dstEDMA[ping_pong_out], srcEDMAout, num_bytesEDMA, 3 * (NMIXTURES+1));
     } else {
-      EdmaMgr_wait(evOUT);
-      EdmaMgr_copyLinkedFast(evOUT, dstEDMA[ping_pong_out], srcEDMA, 3 * (NMIXTURES+1));
+      EdmaMgr_wait(evOUT); //Subsequent passes
+      EdmaMgr_copyLinkedFast(evOUT, dstEDMA[ping_pong_out], srcEDMAout, 3 * (NMIXTURES+1)); //Send data back (for all modes)
     }
     ping_pong_out ++;
     if(ping_pong_out > 2) ping_pong_out = 0;
-    } //outx
-    }
+
+    } //for(outx)
+    } //for(y)
 
     EdmaMgr_wait(evOUT);
     EdmaMgr_free(evIN);
@@ -363,7 +379,9 @@ __kernel void getBackgroundImage2_kernel(__global const uchar* modesUsed,
 }
 
 #else
-
+/****************************************/
+/* GENERIC OPENCV OpenCL implementation */
+/****************************************/
 #if CN==1
 
 #define T_MEAN float

@@ -202,7 +202,8 @@ public:
             kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s -DTIDSP_MOG2 ", nchannels, nmixtures,
                                 bShadowDetection ? "-DSHADOW_DETECT" : "" ));
 #else
-            kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d", nchannels, nmixtures));
+            kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s", nchannels, nmixtures,
+                                bShadowDetection ? "-DSHADOW_DETECT" : "" ));
 #endif
             if (kernel_apply.empty() || kernel_getBg.empty())
                 opencl_ON = false;
@@ -841,7 +842,7 @@ void BackgroundSubtractorMOG2Impl::create_ocl_apply_kernel()
 #ifdef CV_TIOPENCL
 // Macro HAVE_TIMOG2LIB would trigger linking with external DSP library (as specified in core/src/ocl.cpp) 
 //    String opts = format("-v -D CN=%d -D NMIXTURES=%d%s -DHAVE_TIMOG2LIB -DTIDSP_MOG2", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
-    String opts = format("-v -D CN=%d -D NMIXTURES=%d%s -DTIDSP_MOG2 ", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
+    String opts = format("-D CN=%d -D NMIXTURES=%d%s -DTIDSP_MOG2 ", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
     kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
 #else
     String opts = format("-D CN=%d -D NMIXTURES=%d%s", nchannels, nmixtures, bShadowDetection ? " -D SHADOW_DETECT" : "");
