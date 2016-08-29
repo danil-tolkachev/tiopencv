@@ -45,7 +45,6 @@ inline float sum(const float4 val)
 #include <edmamgr.h>
 
 #define SUBLINE_CACHE 64
-
 __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame_offset, int frame_row, int frame_col,  //uchar || uchar3
                           __global uchar* modesUsed,                                                                    //uchar
                           __global uchar* weight,                                                                       //float
@@ -63,22 +62,24 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
   int clk_start, clk_end, clk_tot;
   int outx, inx, x, y;
   int start_y, end_y;
-  int dst_idx, src_idx, tmp_mode;
+  int dst_idx, src_idx, tmp_idx, tmp_mode;
+  int flag_exit;
   float *_weight, *_variance, *_mean;
+  uchar *_modes;
   int idx_step = frame_row * frame_col;
-  int srcEDMAin[(NMIXTURES+1)*3];
-  int srcEDMAout[(NMIXTURES+1)*3];
-  int dstEDMA[3][(NMIXTURES+1)*3];
-  int num_bytesEDMA[(NMIXTURES+1)*3];
+  int srcEDMAin[(NMIXTURES+1)*3 + 1];
+  int srcEDMAout[(NMIXTURES+1)*3 + 1];
+  int dstEDMA[3][(NMIXTURES+1)*3 + 1];
+  int num_bytesEDMA[(NMIXTURES+1)*3 + 1];
   int ping_pong_in   = 0;
-  int ping_pong_proc = 0;
   int ping_pong_out  = -1;
   local float line_weight[3 * (NMIXTURES+1) * SUBLINE_CACHE];
   local float line_variance[3 * (NMIXTURES+1) * SUBLINE_CACHE];
   local float line_mean[3 * (NMIXTURES+1) * SUBLINE_CACHE];
+  local uchar line_modes[3 * SUBLINE_CACHE];
 
-  EdmaMgr_Handle evIN   = EdmaMgr_alloc((NMIXTURES+1)*3);
-  EdmaMgr_Handle evOUT  = EdmaMgr_alloc((NMIXTURES+1)*3);
+  EdmaMgr_Handle evIN   = EdmaMgr_alloc((NMIXTURES+1)*3 + 1);
+  EdmaMgr_Handle evOUT  = EdmaMgr_alloc((NMIXTURES+1)*3 + 1);
 
     if(get_global_id(0) == 0) {
       start_y = 0;
@@ -96,9 +97,9 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
       dst_idx = tmp_mode * SUBLINE_CACHE;
       src_idx = tmp_mode * idx_step + start_y * frame_col;
       src_idx *= sizeof(float);
-      srcEDMAin[tmp_mode * 3 + 0] = (int)&weight[src_idx];
-      srcEDMAin[tmp_mode * 3 + 1] = (int)&variance[src_idx];
-      srcEDMAin[tmp_mode * 3 + 2] = (int)&mean[src_idx];
+      srcEDMAin[tmp_mode * 3 + 0]  = (int)&weight[src_idx];
+      srcEDMAin[tmp_mode * 3 + 1]  = (int)&variance[src_idx];
+      srcEDMAin[tmp_mode * 3 + 2]  = (int)&mean[src_idx];
       dstEDMA[0][tmp_mode * 3 + 0] = (int)&line_weight[dst_idx];
       dstEDMA[0][tmp_mode * 3 + 1] = (int)&line_variance[dst_idx];
       dstEDMA[0][tmp_mode * 3 + 2] = (int)&line_mean[dst_idx];
@@ -110,36 +111,48 @@ __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame
       dstEDMA[2][tmp_mode * 3 + 2] = (int)&line_mean[dst_idx + 2 * (NMIXTURES+1) * SUBLINE_CACHE];
       num_bytesEDMA[tmp_mode * 3 +0] = num_bytesEDMA[tmp_mode * 3 +1] = num_bytesEDMA[tmp_mode * 3 +2] = SUBLINE_CACHE * sizeof(float);
     }
-    EdmaMgr_copy1D1DLinked(evIN, srcEDMAin, dstEDMA[ping_pong_in], num_bytesEDMA, 3 * (NMIXTURES+1));
-    //================================================>
-    //               |                |  ping_pong_in
-    //               | ping_pong_proc |
-    // ping_pong_out |                |
-    //================================================>
+    dstEDMA[0][(NMIXTURES+1) * 3 + 0] = (int)&line_modes[0];
+    dstEDMA[1][(NMIXTURES+1) * 3 + 0] = (int)&line_modes[SUBLINE_CACHE];
+    dstEDMA[2][(NMIXTURES+1) * 3 + 0] = (int)&line_modes[2 * SUBLINE_CACHE];
+    srcEDMAin[(NMIXTURES+1) * 3 + 0]  = (int)&modesUsed[y * frame_col + 0]; 
+    num_bytesEDMA[(NMIXTURES+1) * 3 + 0]  = SUBLINE_CACHE;
+    EdmaMgr_copy1D1DLinked(evIN, srcEDMAin, dstEDMA[ping_pong_in], num_bytesEDMA, 3 * (NMIXTURES+1) + 1);
+    //========================================================>
+    //               |                    |  ping_pong_in (new)
+    //               | ping_pong_in(prev) |
+    // ping_pong_out |                    |
+    //========================================================>
     for (y = start_y; y < end_y; y++)
     {
     for (outx = 0; outx < frame_col; outx+= SUBLINE_CACHE)
     {
+    memcpy (srcEDMAout, srcEDMAin, ((NMIXTURES+1)*3 + 1) * sizeof(int));
+    src_idx = y * frame_col + outx + SUBLINE_CACHE;
+    srcEDMAin[(NMIXTURES+1) * 3 + 0] = (int)&modesUsed[src_idx];
+   
     for(tmp_mode = 0; tmp_mode <= NMIXTURES; tmp_mode ++)
     {
-      srcEDMAout[tmp_mode * 3 + 0] = srcEDMAin[tmp_mode * 3 + 0];
-      srcEDMAout[tmp_mode * 3 + 1] = srcEDMAin[tmp_mode * 3 + 1];
-      srcEDMAout[tmp_mode * 3 + 2] = srcEDMAin[tmp_mode * 3 + 2];
-      src_idx = tmp_mode * idx_step + y * frame_col + outx + SUBLINE_CACHE;
-      src_idx *= sizeof(float);
-      srcEDMAin[tmp_mode * 3 + 0] = (int)&weight[src_idx];
-      srcEDMAin[tmp_mode * 3 + 1] = (int)&variance[src_idx];
-      srcEDMAin[tmp_mode * 3 + 2] = (int)&mean[src_idx];
+      tmp_idx = src_idx * sizeof(float);
+      srcEDMAin[tmp_mode * 3 + 0] = (int)&weight[tmp_idx];
+      srcEDMAin[tmp_mode * 3 + 1] = (int)&variance[tmp_idx];
+      srcEDMAin[tmp_mode * 3 + 2] = (int)&mean[tmp_idx];
+      src_idx += idx_step;
     }
-    _weight   = (float *)&line_weight[ping_pong_proc * (NMIXTURES+1) * SUBLINE_CACHE];
-    _variance = (float *)&line_variance[ping_pong_proc * (NMIXTURES+1) * SUBLINE_CACHE];
-    _mean     = (float *)&line_mean[ping_pong_proc * (NMIXTURES+1) * SUBLINE_CACHE];
-    ping_pong_proc ++;
-    if(ping_pong_proc > 2) ping_pong_proc = 0;
+
+    /* Scratch buffers for current round of processing */
+    tmp_idx   = ping_pong_in * (NMIXTURES+1) * SUBLINE_CACHE;
+    _weight   = (float *)&line_weight[tmp_idx];
+    _variance = (float *)&line_variance[tmp_idx];
+    _mean     = (float *)&line_mean[tmp_idx];
+    _modes    = (uchar *)&line_modes[ping_pong_in * SUBLINE_CACHE];
+    /* Wait for input side transfer to be completed */
     EdmaMgr_wait(evIN);
+
     ping_pong_in ++;
     if(ping_pong_in > 2) ping_pong_in = 0;
-    EdmaMgr_copyLinkedFast(evIN, srcEDMAin, dstEDMA[ping_pong_in], 3 * (NMIXTURES+1));
+
+    /* Initiate next transfer on input side */
+    EdmaMgr_copyLinkedFast(evIN, srcEDMAin, dstEDMA[ping_pong_in], 3 * (NMIXTURES+1) + 1);
 
 clk_start = __clock();
     for (inx = 0; inx < SUBLINE_CACHE; inx++)
@@ -151,19 +164,17 @@ clk_start = __clock();
         
         uchar foreground = 255; // 0 - the pixel classified as background
         int loc_mode_idx;
-        bool fitsPDF = false; //if it remains zero a new GMM mode will be added
-
-        __global uchar* _modesUsed = modesUsed + inx;
-        uchar nmodes = _modesUsed[0];
-
+        bool fitsPDF = false; //if it remains false, a new GMM mode will be added
+        //int pt_idx   = mad24(y, frame_col, x);
+        uchar nmodes = _modes[inx];
         float totalWeight = 0.0f;
         uchar mode = 0;
         loc_mode_idx = inx;
         for (; mode < nmodes; ++mode)
         {
             float c_weight = mad(alpha1, _weight[loc_mode_idx], prune);
-            float c_var = _variance[loc_mode_idx];
-            T_MEAN c_mean = _mean[loc_mode_idx];
+            float c_var    = _variance[loc_mode_idx];
+            T_MEAN c_mean  = _mean[loc_mode_idx];
 
             T_MEAN diff = c_mean - pix;
             float dist2 = dot(diff, diff);
@@ -190,7 +201,6 @@ clk_start = __clock();
                     _weight[loc_mode_idx]   = _weight[prev_idx];
                     _variance[loc_mode_idx] = _variance[prev_idx];
                     _mean[loc_mode_idx]     = _mean[prev_idx];
-
                     loc_mode_idx = prev_idx;
                 }
 
@@ -199,7 +209,6 @@ clk_start = __clock();
                 _weight[loc_mode_idx]   = c_weight; //update weight by the calculated value
 
                 totalWeight += c_weight;
-
                 mode ++;
                 loc_mode_idx += SUBLINE_CACHE;
                 break;
@@ -212,6 +221,7 @@ clk_start = __clock();
             loc_mode_idx += SUBLINE_CACHE;
         }
 
+        loc_mode_idx = mad24(mode, SUBLINE_CACHE, inx);
         for (; mode < nmodes; ++mode)
         {
             float c_weight = mad(alpha1, _weight[loc_mode_idx], prune);
@@ -238,7 +248,7 @@ clk_start = __clock();
         }
 
         if (!fitsPDF)
-        {
+        { /* this does not belong to any mode */
             uchar mode = nmodes == (NMIXTURES) ? (NMIXTURES) - 1 : nmodes++;
             int mode_idx = mad24(mode, SUBLINE_CACHE, inx);
 
@@ -254,7 +264,7 @@ clk_start = __clock();
 
             for (int i = nmodes - 1; i > 0; --i)
             {
-                int prev_idx = mode_idx - idx_step;
+                int prev_idx = mode_idx - SUBLINE_CACHE;
                 float value_at_prev_idx = _weight[prev_idx];
                 if (alphaT < value_at_prev_idx)
                     break;
@@ -270,7 +280,9 @@ clk_start = __clock();
             _variance[mode_idx] = c_varInit;
         }
 
-        _modesUsed[0] = nmodes;
+        //_modesUsed[0] = nmodes;
+        _modes[inx] = nmodes;
+
 #ifdef SHADOW_DETECT
         if (foreground)
         {
@@ -314,23 +326,22 @@ clk_start = __clock();
     } //for(inx)
 clk_end = __clock();
 clk_tot += (unsigned int)(clk_end - clk_start);
+
     if(ping_pong_out < 0) {
       ping_pong_out = 0; //First pass
-      EdmaMgr_copy1D1DLinked(evOUT, dstEDMA[ping_pong_out], srcEDMAout, num_bytesEDMA, 3 * (NMIXTURES+1));
+      EdmaMgr_copy1D1DLinked(evOUT, dstEDMA[ping_pong_out], srcEDMAout, num_bytesEDMA, 3 * (NMIXTURES+1) + 1);
     } else {
       EdmaMgr_wait(evOUT); //Subsequent passes
-      EdmaMgr_copyLinkedFast(evOUT, dstEDMA[ping_pong_out], srcEDMAout, 3 * (NMIXTURES+1)); //Send data back (for all modes)
+      EdmaMgr_copyLinkedFast(evOUT, dstEDMA[ping_pong_out], srcEDMAout, 3 * (NMIXTURES+1) + 1); //Send data back (for all modes)
     }
     ping_pong_out ++;
     if(ping_pong_out > 2) ping_pong_out = 0;
-
     } //for(outx)
     } //for(y)
-
     EdmaMgr_wait(evOUT);
     EdmaMgr_free(evIN);
     EdmaMgr_free(evOUT);
-    printf ("TIDSP Modified MOG2 clk=%d frame_row=%d frame_col=%d (%p %p %p)\n", clk_tot, frame_row, frame_col, line_weight, line_variance, line_mean);
+    printf ("TIDSP Modified MOG2 clk=%d frame_row=%d frame_col=%d \n", clk_tot, frame_row, frame_col);
 }
 
 __kernel void getBackgroundImage2_kernel(__global const uchar* modesUsed,
