@@ -206,13 +206,8 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
   int clk_start, clk_end;
   int i, j;
 
-  long dupper_word, dmid_word, dlower_word, dres0;
-  unsigned int upper_word, mid_word, lower_word;
-  unsigned int res0, res1;
-  unsigned int dst_pixelU, dst_pixelL;
-  unsigned int dst_pixelUu, dst_pixelLu;
-  unsigned int byte0, byte1, byte2, byte3;
-  unsigned int byte4, byte5;
+  long r0_76543210, r1_76543210, r2_76543210, min8, min8_a, min8_b, min8_d1, min8_d2;
+  unsigned int r0_98, r1_98, r2_98, min2;
 
   if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
 
@@ -254,40 +249,36 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
     EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]));
     fetch_rd_idx += cols;
 #pragma unroll 2
-    for (i = 0; i < cols; i += 2) {
-#if 1
-        upper_word      = _mem4_const(&yprev_ptr[i]);
-        mid_word        = _mem4_const(&y_ptr[i]);
-        lower_word      = _mem4_const(&ynext_ptr[i]);
-        res0            = _minu4(lower_word, _minu4 (upper_word, mid_word));
-        byte3           = _extu(res0,  0, 24);
-        byte2           = _extu(res0,  8, 24);
-        byte1           = _extu(res0, 16, 24);
-        byte0           = _extu(res0, 24, 24);
-        dst_pixelL      = _min2(byte0, _min2(byte2, byte1));
-        dst_pixelU      = _min2(byte1, _min2(byte3, byte2));
-        _mem2(&dest_ptr[i]) = (unsigned short)((dst_pixelU << 8) | dst_pixelL);
-#endif
-#if 0
-        dupper_word      = _mem8_const(&yprev_ptr[i]);
-        dmid_word        = _mem8_const(&y_ptr[i]);
-        dlower_word      = _mem8_const(&ynext_ptr[i]);
-        dres0            = _dminu4(dupper_word, dmid_word);
-        dres0            = _dminu4(dres0, dlower_word);
-        res0             = _lo(dres0);
-        byte3            = _extu(res0,  0, 24);
-        byte2            = _extu(res0,  8, 24);
-        byte1            = _extu(res0, 16, 24);
-        byte0            = _extu(res0, 24, 24);
-        dst_pixelL       = _min2(byte0, _min2(byte1, byte2));
-        dst_pixelU       = _min2(byte1, _min2(byte2, byte3));
-        res0             = _hi(dres0);
-        byte5            = _extu(res0, 16, 24);
-        byte4            = _extu(res0, 24, 24);
-        dst_pixelLu      = _min2(byte2, _min2(byte3, byte4));
-        dst_pixelUu      = _min2(byte3, _min2(byte4, byte5));
-        _amem4(&dest_ptr[i]) = _packl4(_pack2(dst_pixelUu, dst_pixelLu), _pack2(dst_pixelU, dst_pixelLu));
-#endif
+    for (i = 0; i < cols; i += 8) {
+       /* Read 10 bytes from each of the 3 lines to produce 8 outputs. */
+       r0_76543210 = _amem8_const(&yprev_ptr[i]);
+       r1_76543210 = _amem8_const(&y_ptr[i]);
+       r2_76543210 = _amem8_const(&ynext_ptr[i]);
+       r0_98 = _amem2_const(&yprev_ptr[i + 8]);
+       r1_98 = _amem2_const(&y_ptr[i + 8]);
+       r2_98 = _amem2_const(&ynext_ptr[i + 8]);
+
+       /* Find min of each column */
+       min8 = _dminu4(r0_76543210, r1_76543210);
+       min8 = _dminu4(min8, r2_76543210);
+       min2 = _minu4(r0_98, r1_98);
+       min2 = _minu4(min2, r2_98);
+
+       /* Shift and find min of result twice */
+       /*    7 6 5 4 3 2 1 0 = min8
+        *    8 7 6 5 4 3 2 1 = min8_d1
+        *    9 8 7 6 5 4 3 2 = min8_d2
+        */
+
+       /* Create shifted copies of min8, and column-wise find the min */
+       min8_d1 = _itoll(_shrmb(min2, _hill(min8)), _shrmb(_hill(min8), _loll(min8)));
+       min8_d2 = _itoll(_packlh2(min2, _hill(min8)), _packlh2(_hill(min8), _loll(min8)));
+
+       min8_a = _dminu4(min8, min8_d1);
+       min8_b = _dminu4(min8_a, min8_d2);
+
+       /* store 8 min values */
+       _amem8(&dest_ptr[i]) = min8_b;
     }
     dest_ptr += cols;
   }
@@ -318,17 +309,8 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
   local uchar img_lines[4*MAX_LINE_SIZE];
   int clk_start, clk_end;
   int i, j;
-  unsigned int upper_word, mid_word, lower_word;
-  unsigned int res0, res1, res2, res3, res4, res5;
-  unsigned short dst_pixel;
-  unsigned short dst_pixelL, dst_pixelU;
-  unsigned int   byte0, byte1, byte2, byte3;
-
-  /* -------------------------------------------------------------------- */
-  /*  "Don't care" values in mask become '1's for the ORing step.  We     */
-  /*  do this by converting negative values to "-1" (all 1s in binary)    */
-  /*  and converting positive values to 0.                                */
-  /* -------------------------------------------------------------------- */
+  long r0_76543210, r1_76543210, r2_76543210, max8, max8_a, max8_b, max8_d1, max8_d2;
+  unsigned int r0_98, r1_98, r2_98, max2;
 
   clk_start = __clock();
 
@@ -370,33 +352,36 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
     EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]));
     fetch_rd_idx += cols;
 #pragma unroll 2
-    for (i = 0; i < cols; i += 2) {
-#if 0
-        upper_word      = _mem4_const(&yprev_ptr[i]);
-        mid_word        = _mem4_const(&y_ptr[i]);
-        lower_word      = _mem4_const(&ynext_ptr[i]);
-        res0            = _dotpu4 (upper_word, 0x00010101);
-        res1            = _dotpu4 (mid_word,   0x00010101);
-        res2            = _dotpu4 (lower_word, 0x00010101);
-        res3            = _dotpu4 (upper_word, 0x01010100);
-        res4            = _dotpu4 (mid_word,   0x01010100);
-        res5            = _dotpu4 (lower_word, 0x01010100);
-        dst_pixel       = 0;
-        if((res0 + res1 + res2) > 0) dst_pixel = 0x00ff;
-        if((res3 + res4 + res5) > 0) dst_pixel |= 0xff00;
-#else
-        upper_word      = _mem4_const(&yprev_ptr[i]);
-        mid_word        = _mem4_const(&y_ptr[i]);
-        lower_word      = _mem4_const(&ynext_ptr[i]);
-        res0            = _maxu4 (lower_word, _maxu4 (upper_word, mid_word));
-        byte3           = _extu(res0,  0, 24);
-        byte2           = _extu(res0,  8, 24);
-        byte1           = _extu(res0, 16, 24);
-        byte0           = _extu(res0, 24, 24);
-        dst_pixelL      = _max2(byte0, _max2(byte1, byte2));
-        dst_pixelU      = _max2(byte1, _max2(byte2, byte3));
-        _mem2(&dest_ptr[i]) = (unsigned short)((dst_pixelU << 8) | dst_pixelL);
-#endif
+    for (i = 0; i < cols; i += 8) {
+        /* Read 10 bytes from each of the 3 lines to produce 8 outputs. */
+        r0_76543210 = _amem8_const(&yprev_ptr[i]);
+        r1_76543210 = _amem8_const(&y_ptr[i]);
+        r2_76543210 = _amem8_const(&ynext_ptr[i]);
+        r0_98 = _amem2_const(&yprev_ptr[i + 8]);
+        r1_98 = _amem2_const(&y_ptr[i + 8]);
+        r2_98 = _amem2_const(&ynext_ptr[i + 8]);
+
+        /* Find max of each column */
+        max8 = _dmaxu4(r0_76543210, r1_76543210);
+        max8 = _dmaxu4(max8, r2_76543210);
+        max2 = _maxu4(r0_98, r1_98);
+        max2 = _maxu4(max2, r2_98);
+
+        /* Shift and find max of result twice */
+        /*    7 6 5 4 3 2 1 0 = max8
+         *    8 7 6 5 4 3 2 1 = max8_d1
+         *    9 8 7 6 5 4 3 2 = max8_d2
+         */
+
+        /* Create shifted copies of max8, and column-wise find the max */
+        max8_d1 = _itoll(_shrmb(max2, _hill(max8)), _shrmb(_hill(max8), _loll(max8)));
+        max8_d2 = _itoll(_packlh2(max2, _hill(max8)), _packlh2(_hill(max8), _loll(max8)));
+
+        max8_a = _dmaxu4(max8, max8_d1);
+        max8_b = _dmaxu4(max8_a, max8_d2);
+
+        /* store 8 max values */
+        _amem8(&dest_ptr[i]) = max8_b;
     }
     dest_ptr += cols;
   }
