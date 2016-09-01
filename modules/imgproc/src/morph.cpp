@@ -1650,6 +1650,9 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
     if (actual_op < 0)
         actual_op = op;
 
+    /* Current DSP implementation works for widths that are multiple of 8 and single channel */
+    int do_tidsp = ((ssize.width % 8) == 0) && (cn == 1);
+
     std::vector<ocl::Kernel> kernels(iterations);
     for (int i = 0; i < iterations; i++)
     {
@@ -1679,11 +1682,13 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
                                      ocl::typeToStr(CV_MAKE_TYPE(depth, scalarcn)),
                                      current_op == op ? "" : cv::format(" -D %s", op2str[current_op]).c_str());
 #endif
-
+        
 #ifdef CV_TIOPENCL
-        if(op == 0) {
+        if((op == 0) && do_tidsp) {
+          printf ("TIDSP_morph_erode!\n");
           kernels[i].create("tidsp_morph_erode", ocl::imgproc::morph_oclsrc, buildOptions);
-        } else if(op == 1) {
+        } else if((op == 1) && do_tidsp) {
+          printf ("TIDSP_morph_dilate!\n");
           kernels[i].create("tidsp_morph_dilate", ocl::imgproc::morph_oclsrc, buildOptions);
         } else 
 #endif
@@ -1707,7 +1712,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         kernels[0].args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnlyNoSize(dst),
                         ofs.x, ofs.y, src.cols, src.rows, wholecols, wholerows);
 #ifdef CV_TIOPENCL
-        if(op == 0 || op == 1)
+        if(do_tidsp && ((op == 0) || (op == 1)))
         { //TIDSP specific implementation for erode and dilate only
            size_t globalSize[3], localSize[3];
            globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;
@@ -1766,9 +1771,8 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         else
             kernels[i].args(ocl::KernelArg::ReadOnlyNoSize(source), ocl::KernelArg::WriteOnlyNoSize(dst),
                 ofs.x, ofs.y, source.cols, source.rows, wholesize.width, wholesize.height);
-
 #ifdef CV_TIOPENCL
-        if((op == 0) || (op == 1))
+        if(do_tidsp && ((op == 0) || (op == 1)))
         { //TIDSP specific implementation for erode and dilate only
            size_t globalSize[3], localSize[3];
            globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;
@@ -1777,10 +1781,10 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
            //return kernels[0].runTask(false);
         } else
 #endif
-        {
-           if (!kernels[i].run(2, globalThreads, localThreads, false))
-               return false;
-        }
+       {
+          if (!kernels[i].run(2, globalThreads, localThreads, false))
+            return false;
+       }
     }
 
     return true;
