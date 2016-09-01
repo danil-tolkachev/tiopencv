@@ -197,14 +197,23 @@ public:
         {
             create_ocl_apply_kernel();
 #ifdef CV_TIOPENCL
-            //kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-v -D CN=%d -D NMIXTURES=%d  -DHAVE_TIMOG2LIB %s", nchannels, nmixtures, 
-            //                    bShadowDetection ? "-DSHADOW_DETECT" : "" ));
-            kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s -DTIDSP_MOG2 ", nchannels, nmixtures,
-                                bShadowDetection ? "-DSHADOW_DETECT" : "" ));
-#else
-            kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s", nchannels, nmixtures,
-                                bShadowDetection ? "-DSHADOW_DETECT" : "" ));
+            int do_tidsp = ((u_bgmodelUsedModes.cols % 8) == 0);
+            int subline_cache = 8;
+            if(do_tidsp) {
+              if((u_bgmodelUsedModes.cols % 128) == 0) subline_cache = 128;
+              else if((u_bgmodelUsedModes.cols % 64) == 0) subline_cache = 64;
+              else if((u_bgmodelUsedModes.cols % 32) == 0) subline_cache = 32;
+              else if((u_bgmodelUsedModes.cols % 16) == 0) subline_cache = 16;
+              //kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-v -D CN=%d -D NMIXTURES=%d  -DHAVE_TIMOG2LIB %s", nchannels, nmixtures, 
+              //                    bShadowDetection ? "-DSHADOW_DETECT" : "" ));
+              kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s -DTIDSP_MOG2 -D SUBLINE_CACHE=%d ", nchannels, nmixtures,
+                                  bShadowDetection ? "-DSHADOW_DETECT" : "", subline_cache));
+           } else
 #endif
+           {
+              kernel_getBg.create("getBackgroundImage2_kernel", ocl::video::bgfg_mog2_oclsrc, format( "-D CN=%d -D NMIXTURES=%d %s", nchannels, nmixtures,
+                                  bShadowDetection ? "-DSHADOW_DETECT" : "" ));
+            }
             if (kernel_apply.empty() || kernel_getBg.empty())
                 opencl_ON = false;
         }
@@ -840,14 +849,23 @@ void BackgroundSubtractorMOG2Impl::create_ocl_apply_kernel()
 {
     int nchannels = CV_MAT_CN(frameType);
 #ifdef CV_TIOPENCL
+    int do_tidsp = ((u_bgmodelUsedModes.cols % 8) == 0);
+    int subline_cache = 8;
+    if(do_tidsp) {
+      if((u_bgmodelUsedModes.cols % 128) == 0) subline_cache = 128;
+      else if((u_bgmodelUsedModes.cols % 64) == 0) subline_cache = 64;
+      else if((u_bgmodelUsedModes.cols % 32) == 0) subline_cache = 32;
+      else if((u_bgmodelUsedModes.cols % 16) == 0) subline_cache = 16;
 // Macro HAVE_TIMOG2LIB would trigger linking with external DSP library (as specified in core/src/ocl.cpp) 
 //    String opts = format("-v -D CN=%d -D NMIXTURES=%d%s -DHAVE_TIMOG2LIB -DTIDSP_MOG2", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
-    String opts = format("-D CN=%d -D NMIXTURES=%d%s -DTIDSP_MOG2 ", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "");
-    kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
-#else
-    String opts = format("-D CN=%d -D NMIXTURES=%d%s", nchannels, nmixtures, bShadowDetection ? " -D SHADOW_DETECT" : "");
-    kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
+      String opts = format("-D CN=%d -D NMIXTURES=%d%s -DTIDSP_MOG2 -D SUBLINE_CACHE=%d", nchannels, nmixtures, bShadowDetection ? " -DSHADOW_DETECT" : "", subline_cache);
+      kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
+    } else
 #endif
+    {
+      String opts = format("-D CN=%d -D NMIXTURES=%d%s", nchannels, nmixtures, bShadowDetection ? " -D SHADOW_DETECT" : "");
+      kernel_apply.create("mog2_kernel", ocl::video::bgfg_mog2_oclsrc, opts);
+    }
 }
 
 #endif

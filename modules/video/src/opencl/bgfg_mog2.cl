@@ -44,7 +44,6 @@ inline float sum(const float4 val)
 #include <dsp_c.h>
 #include <edmamgr.h>
 
-#define SUBLINE_CACHE 64
 __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame_offset, int frame_row, int frame_col,  //uchar || uchar3
                           __global uchar* modesUsed,                                                                    //uchar
                           __global uchar* weight,                                                                       //float
@@ -341,7 +340,7 @@ clk_tot += (unsigned int)(clk_end - clk_start);
     EdmaMgr_wait(evOUT);
     EdmaMgr_free(evIN);
     EdmaMgr_free(evOUT);
-    printf ("TIDSP Modified MOG2 clk=%d frame_row=%d frame_col=%d \n", clk_tot, frame_row, frame_col);
+    printf ("TIDSP Modified MOG2 clk=%d frame_row=%d frame_col=%d (%p %p %p) prune=%f\n", clk_tot, frame_row, frame_col, line_weight, line_variance, line_mean, prune);
 }
 
 __kernel void getBackgroundImage2_kernel(__global const uchar* modesUsed,
