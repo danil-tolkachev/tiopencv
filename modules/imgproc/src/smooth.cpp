@@ -1785,8 +1785,37 @@ void cv::GaussianBlur( InputArray _src, OutputArray _dst, Size ksize,
         return;
 #endif
 
-    CV_IPP_RUN(true, ipp_GaussianBlur( _src,  _dst,  ksize, sigma1,  sigma2, borderType));
+#ifdef CV_TIOPENCL
+{
+    size_t localsize[2]  = { 1, 1 };
+    size_t globalsize[2] = { 2, 1 };
+    int type = _src.type(), depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type);
 
+//    if ( !((depth == CV_8U || depth == CV_16U || depth == CV_16S || depth == CV_32F) && cn <= 4 && (m == 3 || m == 5)) )
+//        return false;
+
+    Size imgSize = _src.size();
+    bool useOptimized = (1 == cn) && (imgSize.width % 8 == 0) && ((size_t)imgSize.width >= 16);
+    if( (ksize.width != 3) && (ksize.height != 3) ) useOptimized = false;
+
+    cv::String kname = format( "tidsp_gaussian" ) ;
+    cv::String kdefs = format("-D T=%s -D T1=%s -D cn=%d", ocl::typeToStr(type), ocl::typeToStr(depth), cn) ;
+    ocl::Kernel k(kname.c_str(), ocl::imgproc::gauss_oclsrc, kdefs.c_str() );
+printf ("\nTIDSP_GAUSSIAN:%d optimized:%d\n", !k.empty(), useOptimized);
+    if (!k.empty() && useOptimized)
+    {
+      UMat src = _src.getUMat();
+      _dst.create(src.size(), type);
+      UMat dst = _dst.getUMat();
+      k.args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnly(dst));
+      k.run(2, globalsize, localsize, false);
+      return;
+    }
+}
+#endif
+
+    CV_IPP_RUN(true, ipp_GaussianBlur( _src,  _dst,  ksize, sigma1,  sigma2, borderType));
+printf ("\nDJDBG GaussianBlur (sigma1=%lf sigma2=%lf, borderType=%d)!\n", sigma1, sigma2, borderType); fflush(stdout);
     Mat kx, ky;
     createGaussianKernels(kx, ky, type, ksize, sigma1, sigma2);
     sepFilter2D(_src, _dst, CV_MAT_DEPTH(type), kx, ky, Point(-1,-1), 0, borderType );
@@ -3133,13 +3162,13 @@ static bool ocl_bilateralFilter_8u(InputArray _src, OutputArray _dst, int d,
     Mat mspace_ofs(1, d * d, CV_32SC1, space_ofs);
     UMat ucolor_weight, uspace_weight, uspace_ofs;
 
+printf ("\nDJDBG bilateralFilter!\n");
     mspace_weight.copyTo(uspace_weight);
     mspace_ofs.copyTo(uspace_ofs);
 
     k.args(ocl::KernelArg::ReadOnlyNoSize(temp), ocl::KernelArg::WriteOnly(dst),
            ocl::KernelArg::PtrReadOnly(uspace_weight),
            ocl::KernelArg::PtrReadOnly(uspace_ofs));
-
     size_t globalsize[2] = { (size_t)dst.cols / sizeDiv, (size_t)dst.rows };
     return k.run(2, globalsize, NULL, false);
 }
