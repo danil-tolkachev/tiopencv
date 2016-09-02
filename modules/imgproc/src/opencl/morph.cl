@@ -151,6 +151,14 @@ __kernel void morph(__global const uchar * srcptr, int src_step, int src_offset,
     LDS_DAT[point2] = temp1;
     barrier(CLK_LOCAL_MEM_FENCE);
 
+if((gidx == 0) && (gidy == 0))
+{
+printf ("\nsrcptr=%p dstptr=%p\n", srcptr, dstptr);
+printf ("dst_offset:%d dst_step:%d src_offset:%d src_step:%d\n", dst_offset, dst_step, src_offset, src_step);
+printf ("src_offset_x:%d src_offset_y:%d cols:%d rows:%d src_whole_cols:%d src_whole_rows:%d\n", src_offset_x, src_offset_y, cols, rows, src_whole_cols, src_whole_rows);
+printf ("RADIUSX=%d RADIUSY=%d LSIZE0=%d LSIZE1=%d TSIZE=%d\n", RADIUSX, RADIUSY, LSIZE0, LSIZE1, TSIZE);
+}
+
     if (gidx < cols && gidy < rows)
     {
         T res = (T)(VAL), temp;
@@ -202,7 +210,7 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
   int   gid   = get_global_id(0);
   EdmaMgr_Handle evIN  = EdmaMgr_alloc(3);
   unsigned int srcPtr[3], dstPtr[3], numBytes[3];
-  local uchar img_lines[4*MAX_LINE_SIZE];
+  local uchar img_lines[4][MAX_LINE_SIZE]; //3 hor.lines needed for processing and one inflight via EDMA
   int clk_start, clk_end;
   int i, j;
 
@@ -218,16 +226,16 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
   if(gid == 0)
   { /* Upper half of image */
     memset (img_lines, 0, 2 * MAX_LINE_SIZE);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)(img_lines[2]), cols);
     fetch_rd_idx = cols;
   } else if(gid == 1)
   { /* Bottom half of image */
     srcPtr[0] = (unsigned int)(srcptr + (rows - 2) * cols);
     srcPtr[1] = (unsigned int)(srcptr + (rows - 1) * cols);
     srcPtr[2] = (unsigned int)(srcptr + (rows - 0) * cols);
-    dstPtr[0] = (unsigned int)(img_lines + 0 * MAX_LINE_SIZE);  
-    dstPtr[1] = (unsigned int)(img_lines + 1 * MAX_LINE_SIZE);  
-    dstPtr[2] = (unsigned int)(img_lines + 2 * MAX_LINE_SIZE);  
+    dstPtr[0] = (unsigned int)img_lines[0];  
+    dstPtr[1] = (unsigned int)img_lines[1];  
+    dstPtr[2] = (unsigned int)img_lines[2];  
     numBytes[0] = numBytes[1] = numBytes[2] = cols;
     EdmaMgr_copy1D1DLinked(evIN, srcPtr, dstPtr, numBytes, 3);
     fetch_rd_idx = (rows + 1) * cols;
@@ -239,14 +247,14 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
   {
     EdmaMgr_wait(evIN);
     rd_idx  = start_rd_idx;
-    yprev_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
+    yprev_ptr = (uchar *)img_lines[rd_idx];
+    rd_idx = (rd_idx + 1) & 3;
     start_rd_idx = rd_idx;
-    y_ptr     = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
-    ynext_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
-    EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]));
+    y_ptr     = (uchar *)img_lines[rd_idx];
+    rd_idx = (rd_idx + 1) & 3;
+    ynext_ptr = (uchar *)img_lines[rd_idx];
+    rd_idx = (rd_idx + 1) & 3;
+    EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)img_lines[rd_idx]);
     fetch_rd_idx += cols;
 #pragma unroll 2
     for (i = 0; i < cols; i += 8) {
@@ -306,7 +314,7 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
   int   gid   = get_global_id(0);
   EdmaMgr_Handle evIN  = EdmaMgr_alloc(3);
   unsigned int srcPtr[3], dstPtr[3], numBytes[3];
-  local uchar img_lines[4*MAX_LINE_SIZE];
+  local uchar img_lines[4][MAX_LINE_SIZE];
   int clk_start, clk_end;
   int i, j;
   long r0_76543210, r1_76543210, r2_76543210, max8, max8_a, max8_b, max8_d1, max8_d2;
@@ -321,16 +329,16 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
   if(gid == 0)
   { /* Upper half of image */
     memset (img_lines, 0, 2 * MAX_LINE_SIZE);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)(img_lines + 2 * MAX_LINE_SIZE), cols);
+    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)img_lines[2], cols);
     fetch_rd_idx = cols;
   } else if(gid == 1)
   { /* Bottom half of image */
     srcPtr[0] = (unsigned int)(srcptr + (rows - 2) * cols);
     srcPtr[1] = (unsigned int)(srcptr + (rows - 1) * cols);
     srcPtr[2] = (unsigned int)(srcptr + (rows - 0) * cols);
-    dstPtr[0] = (unsigned int)(img_lines + 0 * MAX_LINE_SIZE);  
-    dstPtr[1] = (unsigned int)(img_lines + 1 * MAX_LINE_SIZE);  
-    dstPtr[2] = (unsigned int)(img_lines + 2 * MAX_LINE_SIZE);  
+    dstPtr[0] = (unsigned int)img_lines[0];  
+    dstPtr[1] = (unsigned int)img_lines[1];  
+    dstPtr[2] = (unsigned int)img_lines[2];  
     numBytes[0] = numBytes[1] = numBytes[2] = cols;
     EdmaMgr_copy1D1DLinked(evIN, srcPtr, dstPtr, numBytes, 3);
     fetch_rd_idx = (rows + 1) * cols;
@@ -342,14 +350,14 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
   {
     EdmaMgr_wait(evIN);
     rd_idx  = start_rd_idx;
-    yprev_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
+    yprev_ptr = (uchar *)img_lines[rd_idx];
+    rd_idx = (rd_idx + 1) & 3;
     start_rd_idx = rd_idx;
-    y_ptr     = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
-    ynext_ptr = (uchar *)&img_lines[rd_idx];
-    rd_idx = (rd_idx + MAX_LINE_SIZE) & (4*MAX_LINE_SIZE - 1);
-    EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)(&img_lines[rd_idx]));
+    y_ptr     = (uchar *)img_lines[rd_idx];
+    rd_idx = (rd_idx + 1) & 3;
+    ynext_ptr = (uchar *)img_lines[rd_idx];
+    rd_idx = (rd_idx + 1) & 3;
+    EdmaMgr_copyFast(evIN, (void*)(srcptr + fetch_rd_idx), (void*)img_lines[rd_idx]);
     fetch_rd_idx += cols;
 #pragma unroll 2
     for (i = 0; i < cols; i += 8) {
