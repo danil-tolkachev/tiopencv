@@ -43,8 +43,6 @@
 #include "precomp.hpp"
 #include <limits.h>
 #include "opencl_kernels_imgproc.hpp"
-#include <stdio.h>
-#include <stdlib.h>
 
 /****************************************************************************************\
                      Basic Morphological Operations: Erosion & Dilation
@@ -1651,7 +1649,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         actual_op = op;
 
     /* Current DSP implementation works for widths that are multiple of 8 and single channel */
-    int do_tidsp = ((ssize.width % 8) == 0) && (cn == 1);
+    int useOptimized = ((ssize.width % 8) == 0) && (cn == 1);
 
     std::vector<ocl::Kernel> kernels(iterations);
     for (int i = 0; i < iterations; i++)
@@ -1684,11 +1682,9 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
 #endif
         
 #ifdef CV_TIOPENCL
-        if((op == 0) && do_tidsp) {
-          printf ("TIDSP_morph_erode!\n");
+        if((op == 0) && useOptimized) {
           kernels[i].create("tidsp_morph_erode", ocl::imgproc::morph_oclsrc, buildOptions);
-        } else if((op == 1) && do_tidsp) {
-          printf ("TIDSP_morph_dilate!\n");
+        } else if((op == 1) && useOptimized) {
           kernels[i].create("tidsp_morph_dilate", ocl::imgproc::morph_oclsrc, buildOptions);
         } else 
 #endif
@@ -1712,7 +1708,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
         kernels[0].args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnlyNoSize(dst),
                         ofs.x, ofs.y, src.cols, src.rows, wholecols, wholerows);
 #ifdef CV_TIOPENCL
-        if(do_tidsp && ((op == 0) || (op == 1)))
+        if(useOptimized && ((op == 0) || (op == 1)))
         { //TIDSP specific implementation for erode and dilate only
            size_t globalSize[3], localSize[3];
            globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;
@@ -1772,7 +1768,7 @@ static bool ocl_morphOp(InputArray _src, OutputArray _dst, InputArray _kernel,
             kernels[i].args(ocl::KernelArg::ReadOnlyNoSize(source), ocl::KernelArg::WriteOnlyNoSize(dst),
                 ofs.x, ofs.y, source.cols, source.rows, wholesize.width, wholesize.height);
 #ifdef CV_TIOPENCL
-        if(do_tidsp && ((op == 0) || (op == 1)))
+        if(useOptimized && ((op == 0) || (op == 1)))
         { //TIDSP specific implementation for erode and dilate only
            size_t globalSize[3], localSize[3];
            globalSize[0] = 2; globalSize[1] = globalSize[2] = 1;

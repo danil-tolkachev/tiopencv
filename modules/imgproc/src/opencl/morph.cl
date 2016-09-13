@@ -151,14 +151,6 @@ __kernel void morph(__global const uchar * srcptr, int src_step, int src_offset,
     LDS_DAT[point2] = temp1;
     barrier(CLK_LOCAL_MEM_FENCE);
 
-if((gidx == 0) && (gidy == 0))
-{
-printf ("\nsrcptr=%p dstptr=%p\n", srcptr, dstptr);
-printf ("dst_offset:%d dst_step:%d src_offset:%d src_step:%d\n", dst_offset, dst_step, src_offset, src_step);
-printf ("src_offset_x:%d src_offset_y:%d cols:%d rows:%d src_whole_cols:%d src_whole_rows:%d\n", src_offset_x, src_offset_y, cols, rows, src_whole_cols, src_whole_rows);
-printf ("RADIUSX=%d RADIUSY=%d LSIZE0=%d LSIZE1=%d TSIZE=%d\n", RADIUSX, RADIUSY, LSIZE0, LSIZE1, TSIZE);
-}
-
     if (gidx < cols && gidy < rows)
     {
         T res = (T)(VAL), temp;
@@ -219,7 +211,9 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
 
   if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
 
+#ifdef TIDSP_OPENCL_VERBOSE
   clk_start = __clock();
+#endif
   rows >>= 1;
   dest_ptr = (uchar *)dstptr;
 
@@ -293,8 +287,10 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_erode (__
   EdmaMgr_wait(evIN);
   EdmaMgr_free(evIN);
 
+#ifdef TIDSP_OPENCL_VERBOSE
   clk_end = __clock();
   printf ("TIDSP erode clockdiff=%d\n", clk_end - clk_start);
+#endif
 }
 /********************************************************************************************/
 __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (__global const uchar * srcptr, int src_step, int src_offset,
@@ -320,7 +316,9 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
   long r0_76543210, r1_76543210, r2_76543210, max8, max8_a, max8_b, max8_d1, max8_d2;
   unsigned int r0_98, r1_98, r2_98, max2;
 
+#ifdef TIDSP_OPENCL_VERBOSE
   clk_start = __clock();
+#endif
 
   if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
   rows >>= 1;
@@ -395,7 +393,9 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_morph_dilate (_
   }
   EdmaMgr_wait(evIN);
   EdmaMgr_free(evIN);
+#ifdef TIDSP_OPENCL_VERBOSE
   clk_end = __clock();
   printf ("TIDSP dilate clockdiff=%d\n", clk_end - clk_start);
+#endif
 }
 
