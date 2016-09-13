@@ -1794,8 +1794,7 @@ void cv::GaussianBlur( InputArray _src, OutputArray _dst, Size ksize,
 
     Size imgSize = _src.size();
     bool useOptimized = (1 == cn) && (imgSize.width % 8 == 0) && ((size_t)imgSize.width >= 16);
-    useOptimized &&= (ksize.width == 3) && (ksize.height == 3);
-    useOptimized &&= (depth == CV_8U) && (ddepth == CV_8U);
+    useOptimized = useOptimized && (ksize.width == 3) && (ksize.height == 3) && (depth == CV_8U) && (ddepth == CV_8U);
 
     cv::String kname = format( "tidsp_gaussian" ) ;
     cv::String kdefs = format("-D T=%s -D T1=%s -D cn=%d", ocl::typeToStr(type), ocl::typeToStr(depth), cn) ;
