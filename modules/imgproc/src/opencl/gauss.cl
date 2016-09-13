@@ -63,8 +63,9 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_gaussian(__glob
   unsigned int mask_r1_1 = mask_r1_0 << 8U;
 
   if (!evIN) { printf("Failed to alloc edmaIN handle.\n"); return; }
-
+#ifdef TIDSP_OPENCL_VERBOSE
   clk_start = __clock();
+#endif
   rows >>= 1;
   dest_ptr = (uchar *)dstptr;
 
@@ -144,7 +145,9 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_gaussian(__glob
   EdmaMgr_wait(evIN);
   EdmaMgr_free(evIN);
 
+#ifdef TIDSP_OPENCL_VERBOSE
   clk_end = __clock();
   printf ("TIDSP gauss clockdiff=%d\n", clk_end - clk_start);
+#endif
 }
 /********************************************************************************************/
