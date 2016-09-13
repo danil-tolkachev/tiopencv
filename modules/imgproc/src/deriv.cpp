@@ -530,6 +530,37 @@ void cv::Sobel( InputArray _src, OutputArray _dst, int ddepth, int dx, int dy,
     }
 #endif
 
+#ifdef CV_TIOPENCL
+{   /* Validate conditions before doing DSP dispatch */
+    size_t localsize[2]  = { 1, 1 };
+    size_t globalsize[2] = { 2, 1 };
+    Size imgSize = _src.size();
+    bool useOptimized = (1 == cn) && (imgSize.width % 8 == 0) && (imgSize.width >= 16);
+
+    if ( cn != 1 ) useOptimized = false;
+    if ((scale != 1.0) || (delta != 0)) useOptimized = false;
+    if(( ksize != 3 ) && (ksize != -1)) useOptimized = false;
+    if(dx == 1) {
+      if(dy != 0) useOptimized = false;
+    } else if(dy == 1) {
+      if(dx != 0) useOptimized = false;
+    } else useOptimized = false;
+    if(ddepth != CV_16S) useOptimized = false;
+
+    cv::String kname = format( "tidsp_sobel" ) ;
+    cv::String kdefs = format("-D T1=%s -D cn=%d -D%s %s", ocl::typeToStr(ddepth), cn, dx == 1 ? "X_OUTPUT" : "Y_OUTPUT", ksize == 3 ? "-DSOBELCOEF" : " ");
+    ocl::Kernel k(kname.c_str(), ocl::imgproc::sobel_oclsrc, kdefs.c_str() );
+    if (!k.empty() && useOptimized)
+    {
+      UMat src = _src.getUMat();
+      UMat dst = _dst.getUMat();
+      k.args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnly(dst));
+      k.run(2, globalsize, localsize, false);
+      return;
+    }
+}
+#endif
+
     CV_IPP_RUN(true, ipp_sobel(_src, _dst, ddepth, dx, dy, ksize, scale, delta, borderType));
 
     int ktype = std::max(CV_32F, std::max(ddepth, sdepth));
