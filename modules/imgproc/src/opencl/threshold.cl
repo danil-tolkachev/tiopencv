@@ -5,8 +5,6 @@
 #include <dsp_c.h>
 #include <edmamgr.h>
 
-#define TIDSP_OPENCL_VERBOSE
-
 #define MAX_LINE_SIZE 2048
 #define LINES_CACHED  3
 
