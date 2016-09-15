@@ -89,14 +89,16 @@ __attribute__((reqd_work_group_size(1,1,1))) __kernel void tidsp_sobel(__global 
   }
   if(gid == 0)
   { /* Upper half of image */
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr), (void*)(img_lines[1] + 1), cols);
-    EdmaMgr_copy1D1D(evIN, (void*)(srcptr + cols), (void*)(img_lines[2] + 1), cols);
+    for(i = 1; i < LINES_CACHED; i ++)
+    { /* Use this, one time multiple 1D1D transfers, instead of one linked transfer, to allow for fast EDMA later */
+      EdmaMgr_copy1D1D(evIN, (void *)(srcptr + (rows - 1 + i) * cols), (void *)(img_lines[i]), cols);
+    }
     fetch_rd_idx = cols;
   } else if(gid == 1)
   { /* Bottom half of image */
     for(i = 0; i < LINES_CACHED; i ++)
     { /* Use this, one time multiple 1D1D transfers, instead of one linked transfer, to allow for fast EDMA later */
-      EdmaMgr_copy1D1D(evIN, (void *)(srcptr + (rows - 1 + i) * cols), (void *)(img_lines[i] + 1), cols);
+      EdmaMgr_copy1D1D(evIN, (void *)(srcptr + (rows - 1 + i) * cols), (void *)(img_lines[i]), cols);
     }
     fetch_rd_idx = (rows + 1) * cols;
     dest_ptr += rows * cols;
