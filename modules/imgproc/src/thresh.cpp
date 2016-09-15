@@ -1147,7 +1147,6 @@ static bool ocl_threshold( InputArray _src, OutputArray _dst, double & thresh, d
     int type = _src.type(), depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type),
         kercn = ocl::predictOptimalVectorWidth(_src, _dst), ktype = CV_MAKE_TYPE(depth, kercn);
     bool doubleSupport = ocl::Device::getDefault().doubleFPConfig() > 0;
-
     if ( !(thresh_type == THRESH_BINARY || thresh_type == THRESH_BINARY_INV || thresh_type == THRESH_TRUNC ||
            thresh_type == THRESH_TOZERO || thresh_type == THRESH_TOZERO_INV) ||
          (!doubleSupport && depth == CV_64F))
@@ -1155,6 +1154,40 @@ static bool ocl_threshold( InputArray _src, OutputArray _dst, double & thresh, d
 
     const char * const thresholdMap[] = { "THRESH_BINARY", "THRESH_BINARY_INV", "THRESH_TRUNC",
                                           "THRESH_TOZERO", "THRESH_TOZERO_INV" };
+    const double min_vals[] = { 0, CHAR_MIN, 0, SHRT_MIN, INT_MIN, -FLT_MAX, -DBL_MAX, 0 };
+    double min_val = min_vals[depth];
+
+#ifdef CV_TIOPENCL
+{
+    int type = _src.type(), depth = CV_MAT_DEPTH(type), cn = CV_MAT_CN(type);
+    int dtype = _dst.type(), ddepth = CV_MAT_DEPTH(dtype);
+    size_t localsize[2]  = { 1, 1 };
+    size_t globalsize[2] = { 2, 1 };
+
+    Size imgSize = _src.size();
+    //Check conditions for DSP execution
+    bool useOptimized = (1 == cn) && (imgSize.width % 8 == 0) && ((size_t)imgSize.width >= 16);
+
+    useOptimized = useOptimized && (depth == CV_8U) && (ddepth == CV_8U);
+
+    cv::String kname = format( "tidsp_threshold" ) ;
+    cv::String kdefs = format("-D T=%s -D T1=%s -D cn=%d -DTIDSP_OPENCL -D%s", ocl::typeToStr(type), ocl::typeToStr(depth), cn, thresholdMap[thresh_type]) ;
+    ocl::Kernel k(kname.c_str(), ocl::imgproc::threshold_oclsrc, kdefs.c_str() );
+    if (!k.empty() && useOptimized)
+    {
+      UMat src = _src.getUMat();
+      _dst.create(src.size(), type);
+      UMat dst = _dst.getUMat();
+      //k.args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnly(dst));
+      k.args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnly(dst),
+           ocl::KernelArg::Constant(Mat(1, 1, depth, Scalar::all(thresh))),
+           ocl::KernelArg::Constant(Mat(1, 1, depth, Scalar::all(maxval))),
+           ocl::KernelArg::Constant(Mat(1, 1, depth, Scalar::all(min_val))));
+      return k.run(2, globalsize, localsize, false);
+    }
+}
+#endif
+
     ocl::Device dev = ocl::Device::getDefault();
     int stride_size = dev.isIntel() && (dev.type() & ocl::Device::TYPE_GPU) ? 4 : 1;
 
@@ -1171,9 +1204,6 @@ static bool ocl_threshold( InputArray _src, OutputArray _dst, double & thresh, d
 
     if (depth <= CV_32S)
         thresh = cvFloor(thresh);
-
-    const double min_vals[] = { 0, CHAR_MIN, 0, SHRT_MIN, INT_MIN, -FLT_MAX, -DBL_MAX, 0 };
-    double min_val = min_vals[depth];
 
     k.args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnly(dst, cn, kercn),
            ocl::KernelArg::Constant(Mat(1, 1, depth, Scalar::all(thresh))),
