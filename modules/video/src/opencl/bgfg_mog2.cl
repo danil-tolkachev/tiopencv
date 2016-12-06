@@ -3,8 +3,6 @@
 /* TI DSP specific OPENCV OpenCL implementation */
 /************************************************/
 
-#if CN==1
-
 #define T_MEAN float
 #define F_ZERO (0.0f)
 #define cnMode 1
@@ -16,30 +14,6 @@ inline float sum(float val)
 {
     return val;
 }
-
-#else
-
-#define T_MEAN float4
-#define F_ZERO (0.0f, 0.0f, 0.0f, 0.0f)
-#define cnMode 4
-
-#define meanToFrame(a, b)\
-    b[0] = convert_uchar_sat(a.x); \
-    b[1] = convert_uchar_sat(a.y); \
-    b[2] = convert_uchar_sat(a.z);
-
-#define frameToMean(a, b)\
-    b.x = a[0]; \
-    b.y = a[1]; \
-    b.z = a[2]; \
-    b.w = 0.0f;
-
-inline float sum(const float4 val)
-{
-    return (val.x + val.y + val.z);
-}
-
-#endif
 
 #include <dsp_c.h>
 #include <edmamgr.h>
