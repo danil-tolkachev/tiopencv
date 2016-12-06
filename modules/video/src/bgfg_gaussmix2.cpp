@@ -197,7 +197,7 @@ public:
         {
             create_ocl_apply_kernel();
 #ifdef CV_TIOPENCL
-            int do_tidsp = ((u_bgmodelUsedModes.cols % 8) == 0);
+            int do_tidsp = ((u_bgmodelUsedModes.cols % 8) == 0) && (nchannels == 1);
             int subline_cache = 8;
             if(do_tidsp) {
               if((u_bgmodelUsedModes.cols % 128) == 0) subline_cache = 128;
@@ -849,7 +849,7 @@ void BackgroundSubtractorMOG2Impl::create_ocl_apply_kernel()
 {
     int nchannels = CV_MAT_CN(frameType);
 #ifdef CV_TIOPENCL
-    int do_tidsp = ((u_bgmodelUsedModes.cols % 8) == 0);
+    int do_tidsp = ((u_bgmodelUsedModes.cols % 8) == 0) && (nchannels == 1);
     int subline_cache = 8;
     if(do_tidsp) {
       if((u_bgmodelUsedModes.cols % 128) == 0) subline_cache = 128;
