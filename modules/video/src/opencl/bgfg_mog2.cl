@@ -16,7 +16,7 @@ inline float sum(float val)
 }
 
 #include <dsp_c.h>
-#include <edmamgr.h>
+#include <dsp_edmamgr.h>
 
 __kernel void mog2_kernel(__global const uchar* frame, int frame_step, int frame_offset, int frame_row, int frame_col,  //uchar || uchar3
                           __global uchar* modesUsed,                                                                    //uchar

@@ -181,7 +181,7 @@ __kernel void morph(__global const uchar * srcptr, int src_step, int src_offset,
 // This is a subset of complete feature set available in generic baseline (above) kernels
 //
 #include <dsp_c.h>
-#include <edmamgr.h>
+#include <dsp_edmamgr.h>
 
 #define MAX_LINE_SIZE 2048
 

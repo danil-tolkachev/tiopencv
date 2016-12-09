@@ -36,7 +36,7 @@
 //
 
 #include <dsp_c.h>
-#include <edmamgr.h>
+#include <dsp_edmamgr.h>
 
 #define MAX_LINE_SIZE 2048
 #define LINES_CACHED  3
