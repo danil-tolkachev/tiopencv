@@ -479,6 +479,44 @@ static bool ocl_arithm_op(InputArray _src1, InputArray _src2, OutputArray _dst,
     int kercn = haveMask || haveScalar ? cn : ocl::predictOptimalVectorWidth(_src1, _src2, _dst);
     int scalarcn = kercn == 3 ? 4 : kercn, rowsPerWI = d.isIntel() ? 4 : 1;
 
+#ifdef CV_TIOPENCL
+{   /* Validate conditions before doing DSP dispatch */
+    size_t localsize[2]  = { 1, 1 };
+    size_t globalsize[2] = { 2, 1 };
+    Size imgSize1 = _src1.size();
+    Size imgSize2 = _src2.size();
+    Size dstImgSize = _dst.size();
+    bool useOptimized = (1 == cn) && (imgSize1.width % 8 == 0) && (imgSize2.width >= 16) && (imgSize2.width % 8 == 0) && (imgSize2.width >= 16);
+printf ("\nDJDBG arithm width1=%d width2=%d dstWidth%d\n", imgSize1.width, imgSize2.width, dstImgSize.width);
+    if ( cn != 1 ) useOptimized = false;
+    if (oclop != OCL_OP_ABSDIFF) useOptimized = false;
+    if (haveMask)  useOptimized  = false;
+    if (depth1 != CV_8UC1 || depth2 != CV_8UC1 || ddepth != CV_8U) useOptimized = false;
+
+    if(useOptimized)
+    {
+      cv::String kname = format( "KF" ) ;
+      cv::String kdefs = format("-D T1=%s -D TIDSP_OPENCL -D BINARY_OP -D OP_ABSDIFF -D COLS4=%d", ocl::typeToStr(ddepth), dstImgSize.width/4);
+      ocl::Kernel k(kname.c_str(), ocl::core::arithm_oclsrc, kdefs.c_str() );
+printf ("\nDJDBG arithm compiler flags:%s\n", kdefs.c_str());
+      if (!k.empty())
+      {
+struct timespec tp_start, tp_end;
+        bool retval = false;
+        UMat src1 = _src1.getUMat();
+        UMat src2 = _src2.getUMat();
+        UMat dst  = _dst.getUMat();
+        k.args(ocl::KernelArg::ReadOnlyNoSize(src1), ocl::KernelArg::ReadOnlyNoSize(src2), ocl::KernelArg::WriteOnly(dst));
+clock_gettime(CLOCK_MONOTONIC, &tp_start); 
+        retval = k.run(2, globalsize, localsize, true);
+clock_gettime(CLOCK_MONOTONIC, &tp_end);
+printf ("\nDJDBG kernel only profiling:%lfms\n", (tp_end.tv_sec - tp_start.tv_sec) * 1000.0 + (tp_end.tv_nsec - tp_start.tv_nsec) * 0.000001);
+        return retval;
+      }
+    }
+}
+#endif
+
     char cvtstr[4][32], opts[1024];
     sprintf(opts, "-D %s%s -D %s -D srcT1=%s -D srcT1_C1=%s -D srcT2=%s -D srcT2_C1=%s "
             "-D dstT=%s -D dstT_C1=%s -D workT=%s -D workST=%s -D scaleT=%s -D wdepth=%d -D convertToWT1=%s "

@@ -2128,6 +2128,51 @@ static bool ocl_minMaxIdx( InputArray _src, double* minVal, double* maxVal, int*
         else
             needMaxLoc = true;
     }
+#ifdef CV_TIOPENCL
+{   /* Validate conditions before doing DSP dispatch */
+    size_t localsize[2]  = { 1, 1 };
+    size_t globalsize[2] = { 2, 1 };
+    Size imgSize = _src.size();
+    bool useOptimized = (1 == cn) && (imgSize.width % 8 == 0) && (imgSize.width >= 16);
+
+    if ( cn != 1 ) useOptimized = false;
+    if (haveMask)  useOptimized  = false;
+    if (needMinLoc || needMaxLoc) useOptimized = false;
+    if (!needMinVal || !needMaxVal) useOptimized = false;
+    if (depth != CV_8UC1 || ddepth != CV_8U) useOptimized = false;
+
+    if(useOptimized)
+    {
+      cv::String kname = format( "tidsp_minmaxValue" ) ;
+      cv::String kdefs = format("-D T1=%s ", ocl::typeToStr(ddepth));
+      ocl::Kernel k(kname.c_str(), ocl::core::tidspminmax_oclsrc, kdefs.c_str() );
+      if (!k.empty())
+      {
+        int esz = groupnum * 2;  // assume both min and max values are needed!
+        UMat src = _src.getUMat();
+        UMat resultArray(1, esz, CV_8UC1);
+        //k.args(ocl::KernelArg::ReadOnlyNoSize(src), ocl::KernelArg::WriteOnly(dst));
+        k.args(ocl::KernelArg::ReadOnlyNoSize(src), src.rows, src.cols, ocl::KernelArg::PtrWriteOnly(resultArray));
+        k.run(2, globalsize, localsize, false);
+        unsigned char find_minValue = 255, find_maxValue = 0;
+        unsigned char tmp_minValue, tmp_maxValue;
+        Mat  tmpResultArray = resultArray.getMat(ACCESS_READ);
+        unsigned char *result_data = (unsigned char *)tmpResultArray.ptr();
+        for (int ii = 0; ii < groupnum; ii ++)
+        {
+          tmp_minValue = *result_data++;
+          tmp_maxValue = *result_data++;
+          if(find_minValue > tmp_minValue) find_minValue = tmp_minValue;
+          if(find_maxValue < tmp_maxValue) find_maxValue = tmp_maxValue;
+        }
+        *minVal = (double)find_minValue;         
+        *maxVal = (double)find_maxValue;         
+        return true;
+      }
+    }
+}
+#endif
+
 
     char cvt[2][40];
     String opts = format("-D DEPTH_%d -D srcT1=%s%s -D WGS=%d -D srcT=%s"

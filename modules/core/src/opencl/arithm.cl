@@ -57,6 +57,14 @@
           -D workDepth=<work depth> [-D cn=<num channels>]" - for mixed-type operations
 */
 
+#ifdef TIDSP_OPENCL
+#include <dsp_c.h>
+#include <dsp_edmamgr.h>
+#define MAX_LINE_SIZE 2048
+#define LINES_CACHED  2
+//#define TIDSP_OPENCL_VERBOSE
+#endif
+
 #ifdef DOUBLE_SUPPORT
 #ifdef cl_amd_fp64
 #pragma OPENCL EXTENSION cl_amd_fp64:enable
@@ -399,6 +407,99 @@
 
 #if defined BINARY_OP
 
+#ifdef TIDSP_OPENCL
+__attribute__((reqd_work_group_size(1, 1, 1))) __kernel void KF(__global const uchar * srcptr1, int srcstep1, int srcoffset1,
+                 __global const uchar * srcptr2, int srcstep2, int srcoffset2,
+                 __global uchar * dstptr, int dststep, int dstoffset,
+                 int rows, int cols EXTRA_PARAMS )
+{
+  uchar * restrict y_ptr1[LINES_CACHED];
+  uchar * restrict y_ptr2[LINES_CACHED];
+  int *ycurr_ptr1, *ycurr_ptr2, *dest_ptr;
+  int  rd_idx, start_rd_idx, fetch_rd_idx;
+  int   gid   = get_global_id(0);
+  EdmaMgr_Handle evIN1  = EdmaMgr_alloc(LINES_CACHED);
+  EdmaMgr_Handle evIN2  = EdmaMgr_alloc(LINES_CACHED);
+  local uchar img_lines1[LINES_CACHED+1][MAX_LINE_SIZE]; // LINES_CACHED lines needed for processing and one more inflight via EDMA
+  local uchar img_lines2[LINES_CACHED+1][MAX_LINE_SIZE]; // LINES_CACHED lines needed for processing and one more inflight via EDMA
+  int clk_start, clk_end;
+  int i, j, kk;
+ 
+  if (!evIN1) { printf("Failed to alloc edmaIN1 handle.\n"); return; }
+  if (!evIN2) { printf("Failed to alloc edmaIN2 handle.\n"); return; }
+
+#ifdef TIDSP_OPENCL_VERBOSE
+  clk_start = __clock();
+#endif
+
+  rows >>= 1;
+  dest_ptr = (int *)dstptr;
+
+  for(i = 0; i < (LINES_CACHED + 1); i ++)
+  {
+    memset ((void *)img_lines1[i], 0, MAX_LINE_SIZE);
+    memset ((void *)img_lines2[i], 0, MAX_LINE_SIZE);
+  }
+  if(gid == 0)
+  { /* Upper half of image */
+    for(i = 1; i < LINES_CACHED; i ++)
+    { /* Use this, one time multiple 1D1D transfers, instead of one linked transfer, to allow for fast EDMA later */
+      EdmaMgr_copy1D1D(evIN1, (void *)(srcptr1), (void *)(img_lines1[i]), cols);
+      EdmaMgr_copy1D1D(evIN2, (void *)(srcptr2), (void *)(img_lines2[i]), cols);
+    }
+    fetch_rd_idx = cols;
+  } else if(gid == 1)
+  { /* Bottom half of image */
+    for(i = 0; i < LINES_CACHED; i ++)
+    { /* Use this, one time multiple 1D1D transfers, instead of one linked transfer, to allow for fast EDMA later */
+      EdmaMgr_copy1D1D(evIN1, (void *)(srcptr1 + (rows - 1 + i) * cols), (void *)(img_lines1[i]), cols);
+      EdmaMgr_copy1D1D(evIN2, (void *)(srcptr2 + (rows - 1 + i) * cols), (void *)(img_lines2[i]), cols);
+    }
+    fetch_rd_idx = (rows + 1) * cols;
+    dest_ptr += rows * (COLS4 * 4)/sizeof(int);
+  } else return;
+  start_rd_idx = 0;
+
+  for (int y = 0; y < rows; y ++)
+  {
+    EdmaMgr_wait(evIN1);
+    EdmaMgr_wait(evIN2);
+    rd_idx  = start_rd_idx;
+    for(kk = 0; kk < LINES_CACHED; kk ++)
+    {
+      y_ptr1[kk] = (uchar *)img_lines1[rd_idx];
+      y_ptr2[kk] = (uchar *)img_lines2[rd_idx];
+      rd_idx = (rd_idx + 1) & LINES_CACHED;
+    }
+    start_rd_idx = (start_rd_idx + 1) & LINES_CACHED;
+    EdmaMgr_copyFast(evIN1, (void*)(srcptr1 + fetch_rd_idx), (void*)(img_lines1[rd_idx]));
+    EdmaMgr_copyFast(evIN2, (void*)(srcptr2 + fetch_rd_idx), (void*)(img_lines2[rd_idx]));
+    fetch_rd_idx += 4 * COLS4;
+    /**********************************************************************************/
+    ycurr_ptr1 = (int *)y_ptr1[1];
+    ycurr_ptr2 = (int *)y_ptr2[1];
+    /*******************/
+    /* KERNEL SPECIFIC */
+    /*******************/
+    for(int x=0; x < COLS4; x++ ) {
+      dest_ptr[x] = _subabs4(ycurr_ptr1[x], ycurr_ptr2[x]);
+    }
+  }
+  /****************************/
+  /* KERNEL SPECIFIC EPILOGUE */
+  /****************************/
+  /****************************/
+
+  EdmaMgr_wait(evIN1);
+  EdmaMgr_wait(evIN2);
+  EdmaMgr_free(evIN1);
+  EdmaMgr_free(evIN2);
+#ifdef TIDSP_OPENCL_VERBOSE
+  clk_end = __clock();
+  printf ("TIDSP absdiff clockdiff=%d rows=%d cols=%d\n", clk_end - clk_start, rows, cols);
+#endif
+}
+#else
 __kernel void KF(__global const uchar * srcptr1, int srcstep1, int srcoffset1,
                  __global const uchar * srcptr2, int srcstep2, int srcoffset2,
                  __global uchar * dstptr, int dststep, int dstoffset,
@@ -426,6 +527,7 @@ __kernel void KF(__global const uchar * srcptr1, int srcstep1, int srcoffset1,
         }
     }
 }
+#endif
 
 #elif defined MASK_BINARY_OP
 
