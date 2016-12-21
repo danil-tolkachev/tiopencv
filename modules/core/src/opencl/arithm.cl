@@ -408,13 +408,13 @@
 #if defined BINARY_OP
 
 #ifdef TIDSP_OPENCL
-__attribute__((reqd_work_group_size(1, 1, 1))) __kernel void KF(__global const uchar * srcptr1, int srcstep1, int srcoffset1,
-                 __global const uchar * srcptr2, int srcstep2, int srcoffset2,
-                 __global uchar * dstptr, int dststep, int dstoffset,
+__attribute__((reqd_work_group_size(1, 1, 1))) __kernel void KF(__global const uchar * restrict srcptr1, int srcstep1, int srcoffset1,
+                 __global const uchar * restrict srcptr2, int srcstep2, int srcoffset2,
+                 __global uchar * restrict dstptr, int dststep, int dstoffset,
                  int rows, int cols EXTRA_PARAMS )
 {
-  uchar * restrict y_ptr1[LINES_CACHED];
-  uchar * restrict y_ptr2[LINES_CACHED];
+  uchar * y_ptr1[LINES_CACHED];
+  uchar * y_ptr2[LINES_CACHED];
   int *ycurr_ptr1, *ycurr_ptr2, *dest_ptr;
   int  rd_idx, start_rd_idx, fetch_rd_idx;
   int   gid   = get_global_id(0);
