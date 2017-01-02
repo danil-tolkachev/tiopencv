@@ -578,6 +578,18 @@ bool CvCapture_GStreamer::open( int type, const char* filename )
     GstElementFactory * testfac;
     GstStateChangeReturn status;
 
+#ifdef CV_TIOPENCL
+    { /* WORKAROUND: Increase priority of SW color space conversion                                          */
+      /* autovideoconvert may pick up v4l2video0converter which may not support HW conversion of NV12 to RGB */
+      GstRegistry* tmp_reg = gst_registry_get();
+      GstPluginFeature* video_conv = gst_registry_lookup_feature(tmp_reg, "videoconvert");
+      if(video_conv) {
+        gst_plugin_feature_set_rank(video_conv, 1);
+        gst_object_unref(video_conv);
+      }
+    }
+#endif
+
     if (type == CV_CAP_GSTREAMER_V4L){
         testfac = gst_element_factory_find("v4lsrc");
         if (!testfac){
