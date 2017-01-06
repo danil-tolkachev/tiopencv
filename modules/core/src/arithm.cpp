@@ -504,7 +504,6 @@ static bool ocl_arithm_op(InputArray _src1, InputArray _src2, OutputArray _dst,
         UMat dst  = _dst.getUMat();
         k.args(ocl::KernelArg::ReadOnlyNoSize(src1), ocl::KernelArg::ReadOnlyNoSize(src2), ocl::KernelArg::WriteOnly(dst));
         return k.run(2, globalsize, localsize, true);
-        return retval;
       }
     }
 }
