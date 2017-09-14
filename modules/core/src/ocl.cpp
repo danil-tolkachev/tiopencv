@@ -1571,6 +1571,22 @@ bool haveOpenCL()
 
     if (!g_isOpenCLInitialized)
     {
+#ifdef CV_TIOPENCL
+        if (0 == access("/dev/cmem", 0))
+        { 
+          if(0 == system("pidof -x ti-mctd > /dev/null"))
+          {
+            //A process having name PROCESS is running.
+          } else {
+            g_isOpenCLInitialized = true;
+            return false;
+          }
+        } 
+        else { 
+          g_isOpenCLInitialized = true;
+          return false;
+        }     
+#endif
         try
         {
             cl_uint n = 0;
