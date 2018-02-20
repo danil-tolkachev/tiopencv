@@ -3838,19 +3838,6 @@ struct Program::Impl
             printf("clBuildProgram \n");
 #endif
 
-#ifdef CV_TIOPENCL
-            if(strstr(buildflags.c_str(), "-DHAVE_TIIMGLIB") != 0)
-            { // Link with DSP IMGLIB library 
-                buildflags += " /usr/share/ti/ti-imglib-c66x-tree/lib/imglib.ae66 ";
-            }
-#endif
-
-#ifdef CV_TIOPENCL
-            if(strstr(buildflags.c_str(), "-DHAVE_TIMOG2LIB") != 0)
-            { // Link with the custome DSP MOG2 library (optional)
-                buildflags += " /usr/share/ti/opencv/timog2.a ";
-            }
-#endif
             retval = clBuildProgram(handle, n,
                                     (const cl_device_id*)deviceList,
                                     buildflags.c_str(), 0, 0);
